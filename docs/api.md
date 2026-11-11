@@ -1,0 +1,215 @@
+# RaidSync API
+
+기본 경로는 /api다. 요청·응답은 UTF-8 JSON이고 ID는 정수다. 별도 성공 응답 envelope는 없다. 감사 시간은 Asia/Seoul 기준 ISO 8601 LocalDateTime(UTC 오프셋 없음)이다. 서버의 토큰 원문은 최초 생성/참여 응답에만 등장한다.
+
+## 공통 인증·보안 규칙
+
+보호된 API에는 다음 헤더를 보낸다.
+
+```http
+Authorization: Bearer <memberAccessToken>
+```
+
+토큰은 32바이트 난수(256비트)를 Base64 URL-safe, padding 없이 인코딩한 43자 문자열이다. 서버에는 SHA-256의 64자 소문자 hex 해시만 저장한다. 초대 코드는 별도로 생성되며 멤버 인증으로 사용할 수 없다. 사용자 식별은 토큰으로만 수행한다. 쿼리의 memberId/groupMemberId나 클라이언트가 보낸 role을 신뢰하지 않는다.
+
+- 세션·쿠키·HTTP Basic·폼 로그인은 인증 수단으로 사용하지 않는다. 모든 요청이 stateless다.
+- Authorization은 단일 헤더로 전달한다. 형식 오류·중복 헤더·유효하지 않은 토큰은 401이다. 공개 API라도 잘못된 Authorization을 첨부하면 401이므로 생성/참여에는 기존 토큰을 생략하는 것을 권장한다.
+- 토큰을 URL·서버 로그·분석 도구·콘솔 로그에 넣지 않는다. 생성/참여 응답은 Cache-Control: no-store다. 다른 응답에는 토큰과 해시가 없다.
+- 토큰 만료·회전·재발급·로그아웃에 의한 서버 폐기는 아직 없다. 현재는 DB 멤버가 존재하고 해시가 일치하는 동안 유효하다. 분실한 원문은 복구할 수 없다.
+- CORS_ALLOWED_ORIGINS에는 허용 Origin을 쉼표로 나열한다. 예: http://localhost:5173,https://raidsync.example. 빈 값은 교차 Origin 접근을 허용하지 않는다. *와 null Origin은 설정할 수 없다.
+- CORS는 GET/POST/OPTIONS 및 Authorization/Content-Type/Accept 헤더를 허용한다. credentials 옵션은 false다. Location 헤더는 브라우저에서 읽을 수 있다. 허용 Origin의 preflight는 인증 없이 처리하고, 미허용 Origin은 JSON 403으로 거절한다.
+- CSRF는 Authorization 헤더 기반 REST에 맞춰 비활성화했다. 이후 쿠키 인증을 추가하면 CSRF 정책도 다시 설계해야 한다.
+- /actuator/health는 GET 공개 경로로 예약했지만 Actuator 의존성이 없어 현재 해당 엔드포인트는 제공하지 않는다.
+
+## API 목록
+
+| Method | Endpoint | 인증 | 성공 |
+|---|---|---|---|
+| POST | /api/groups | 불필요 | 201 |
+| POST | /api/groups/join | 불필요 | 201 |
+| GET | /api/groups/{groupId} | 해당 그룹 멤버 | 200 |
+| GET | /api/groups/{groupId}/members | 해당 그룹 멤버 | 200 |
+| GET | /api/groups/{groupId}/invite | 해당 그룹 OWNER | 200 |
+| GET | /api/members/me | 멤버 | 200 |
+
+## 1. 그룹 생성
+
+POST /api/groups — 인증 불필요.
+
+```json
+{
+  "name": "저녁 레이드 파티",
+  "description": "주간 레이드 일정 공유",
+  "ownerNickname": "파티장"
+}
+```
+
+name과 ownerNickname은 필수다. 이름 최대 100자, 닉네임 최대 50자, description은 nullable이며 최대 2000자다. 이름·설명·닉네임의 앞뒤 공백을 strip하고 Unicode NFC 정규화를 적용한 뒤 검증한다. 닉네임은 대소문자를 구별한다. 공백만 있는 이름·닉네임은 거절한다.
+
+201 Created, Location: /api/groups/1, Cache-Control: no-store.
+
+```json
+{
+  "group": {
+    "groupId": 1,
+    "name": "저녁 레이드 파티",
+    "description": "주간 레이드 일정 공유",
+    "memberCount": 1,
+    "createdAt": "2026-11-10T18:00:00.123456"
+  },
+  "inviteCode": "<43자 URL-safe 난수>",
+  "member": {
+    "memberId": 10,
+    "nickname": "파티장",
+    "role": "OWNER",
+    "joinedAt": "2026-11-10T18:00:00.123456"
+  },
+  "memberAccessToken": "<생성자 전용 43자 토큰 원문>"
+}
+```
+
+그룹과 OWNER 저장은 하나의 트랜잭션이다. 초대 코드 또는 토큰 해시 충돌 시 전체 트랜잭션을 롤백한 뒤 새 트랜잭션으로 최대 3회 시도한다. 재시도 소진은 500 GENERATION_FAILED다. 다른 저장 실패도 전체 롤백한다.
+
+주요 오류: 400 INVALID_REQUEST, 잘못된 Authorization 첨부 시 401 UNAUTHORIZED, 500 INTERNAL_ERROR/GENERATION_FAILED.
+
+## 2. 초대로 그룹 참여
+
+POST /api/groups/join — 인증 불필요.
+
+```json
+{
+  "inviteCode": "<초대 코드>",
+  "nickname": "새로운멤버"
+}
+```
+
+두 값은 필수다. inviteCode는 앞뒤 공백을 제거하고 최대 128자이며 대소문자를 구별한다. nickname의 정규화·길이 제한은 생성자 닉네임과 같다. 초대 코드는 API 요청 본문으로 전달한다. 프론트에서 초대 링크를 구성할 때 사용할 값이며 멤버 인증 토큰을 링크에 넣지 않는다.
+
+201 Created, Cache-Control: no-store.
+
+```json
+{
+  "group": {
+    "groupId": 1,
+    "name": "저녁 레이드 파티",
+    "description": "주간 레이드 일정 공유",
+    "memberCount": 2,
+    "createdAt": "2026-11-10T18:00:00.123456"
+  },
+  "member": {
+    "memberId": 11,
+    "nickname": "새로운멤버",
+    "role": "MEMBER",
+    "joinedAt": "2026-11-10T18:05:00.123456"
+  },
+  "memberAccessToken": "<가입자 전용 43자 토큰 원문>"
+}
+```
+
+닉네임 사전 확인과 DB UNIQUE(group_id,nickname)를 함께 사용한다. 동시 요청이 사전 확인을 모두 통과해도 하나만 저장되며 다른 요청은 409다. 다른 그룹에서는 같은 닉네임이 허용된다. 토큰 해시 충돌 시에도 롤백 후 최대 3회 재시도한다. memberCount는 COUNT 결과이며 동시 가입 시 응답 이후 다른 요청에 의해 증가할 수 있다.
+
+주요 오류: 400 INVALID_REQUEST, 404 INVITE_NOT_FOUND, 409 NICKNAME_CONFLICT, 401 UNAUTHORIZED, 500 INTERNAL_ERROR/GENERATION_FAILED.
+
+## 3. 그룹 조회
+
+GET /api/groups/1 — 해당 그룹의 OWNER/MEMBER 인증 필요. 요청 JSON 없음.
+
+```json
+{
+  "groupId": 1,
+  "name": "저녁 레이드 파티",
+  "description": "주간 레이드 일정 공유",
+  "memberCount": 2,
+  "createdAt": "2026-11-10T18:00:00.123456"
+}
+```
+
+초대 코드와 인증 정보는 포함하지 않는다. memberCount 컬럼은 없으며 COUNT 쿼리로 계산한다.
+
+주요 오류: 400 INVALID_REQUEST(유효하지 않은 ID), 401 UNAUTHORIZED, 403 FORBIDDEN(다른 그룹), 404 GROUP_NOT_FOUND, 500 INTERNAL_ERROR.
+
+## 4. 그룹 멤버 목록
+
+GET /api/groups/1/members — 해당 그룹의 OWNER/MEMBER 인증 필요. 요청 JSON 없음. memberId 오름차순으로 정렬한 배열을 반환한다.
+
+```json
+[
+  {"memberId": 10, "nickname": "파티장", "role": "OWNER", "joinedAt": "2026-11-10T18:00:00.123456"},
+  {"memberId": 11, "nickname": "새로운멤버", "role": "MEMBER", "joinedAt": "2026-11-10T18:05:00.123456"}
+]
+```
+
+주요 오류: 400 INVALID_REQUEST, 401 UNAUTHORIZED, 403 FORBIDDEN, 404 GROUP_NOT_FOUND, 500 INTERNAL_ERROR.
+
+## 5. 내 멤버 정보
+
+GET /api/members/me — 멤버 인증 필요. 요청 JSON 없음.
+
+```json
+{
+  "memberId": 10,
+  "groupId": 1,
+  "nickname": "파티장",
+  "role": "OWNER"
+}
+```
+
+새로고침 후 저장된 토큰을 Authorization에 넣어 이 API를 호출한다. 응답은 해당 토큰의 멤버이며 별도의 memberId 입력은 받지 않는다. 같은 사용자가 여러 그룹에 가입하면 그룹별로 다른 멤버와 토큰을 가진다.
+
+주요 오류: 401 UNAUTHORIZED, 500 INTERNAL_ERROR.
+
+## 6. OWNER 초대 정보 조회
+
+GET /api/groups/1/invite — 해당 그룹 OWNER 인증 필요. 요청 JSON 없음. Cache-Control: no-store.
+
+```json
+{
+  "groupId": 1,
+  "inviteCode": "<그룹 초대 코드>"
+}
+```
+
+프론트 주소가 아직 정해지지 않아 서버는 inviteUrl을 조합하지 않는다. 프론트에서 초대 코드를 이용해 링크를 만든다. OWNER에게도 다른 멤버의 토큰·해시는 제공하지 않는다.
+
+주요 오류: 400 INVALID_REQUEST, 401 UNAUTHORIZED, 403 FORBIDDEN(MEMBER 또는 다른 그룹), 404 GROUP_NOT_FOUND, 500 INTERNAL_ERROR.
+
+## 공통 오류 응답
+
+```json
+{
+  "status": 401,
+  "code": "UNAUTHORIZED",
+  "message": "유효한 멤버 인증이 필요합니다."
+}
+```
+
+| HTTP | code | 의미 |
+|---|---|---|
+| 400 | INVALID_REQUEST | 필수값·길이·ID·JSON 형식 오류 |
+| 401 | UNAUTHORIZED | 토큰 누락·형식 오류·불일치; WWW-Authenticate: Bearer |
+| 403 | FORBIDDEN | 다른 그룹/역할 접근 또는 미허용 CORS |
+| 404 | GROUP_NOT_FOUND | 인증 후 조회한 그룹이 없음 |
+| 404 | INVITE_NOT_FOUND | 초대 코드로 그룹을 찾지 못함 |
+| 404 | NOT_FOUND | 매핑되지 않은 리소스 |
+| 409 | NICKNAME_CONFLICT | 같은 그룹 내 닉네임 중복 |
+| 405 | METHOD_NOT_ALLOWED | 지원하지 않는 HTTP 메서드 |
+| 415 | UNSUPPORTED_MEDIA_TYPE | 요청 Content-Type 오류 |
+| 500 | GENERATION_FAILED | 난수 코드 충돌 재시도 소진 |
+| 500 | INTERNAL_ERROR | 서버 또는 DB 오류 |
+
+인증이 필요한 경로는 그룹 존재 여부를 확인하기 전에 토큰을 검증한다. 인증 없이 존재 여부를 탐색하면 401이다. 유효한 멤버가 존재하는 다른 그룹에 접근하면 403, 없는 그룹이면 404다. 오류 응답은 SQL·예외 스택·입력값·토큰·해시를 포함하지 않는다.
+
+## 프론트 연동 순서
+
+1. 생성 또는 참여 요청을 보낸다.
+2. 반환된 groupId/memberId 및 memberAccessToken을 확보한다. 토큰을 응답 로그에 기록하지 않는다.
+3. 그룹별 토큰을 관리하며 이후 요청의 Authorization에 해당 그룹 토큰을 넣는다.
+4. 새로고침 시 /api/members/me로 토큰 상태를 확인한다. 401이면 인증 정보가 유효하지 않다는 안내를 한다. 403은 해당 그룹/역할 권한 부족으로 처리한다.
+5. 409이면 닉네임 변경을 안내한다. 토큰 분실 시 원문 복구·재발급 API는 아직 없다.
+
+실서비스에서는 HTTPS를 사용하고 브라우저 저장 방식과 XSS 대응을 함께 결정한다. 서버는 쿠키 기반 자동 인증을 제공하지 않는다. 공개 그룹 생성·참여 API의 rate limit, 초대 코드 회전, 토큰 만료/폐기는 후속 운영 보강 사항이다.
+
+## 참고
+
+- [Spring Security CORS](https://docs.spring.io/spring-security/reference/7.0/servlet/integrations/cors.html)
+- [Spring Boot MockMvc 테스트](https://docs.spring.io/spring-boot/reference/testing/spring-boot-applications.html)

@@ -1,0 +1,16 @@
+# @ActiveProfiles("test")가 지정된 통합 테스트에서만 적용한다.
+# 프로젝트 루트 .env 또는 실행 환경 변수의 TEST_DB_*를 사용하며 개발 DB 설정으로 대체하지 않는다.
+spring:
+  datasource:
+    url: ${TEST_DB_URL}
+    username: ${TEST_DB_USERNAME}
+    password: ${TEST_DB_PASSWORD}
+  flyway:
+    url: ${TEST_DB_URL}
+    user: ${TEST_DB_USERNAME}
+    password: ${TEST_DB_PASSWORD}
+    enabled: true
+    clean-disabled: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
