@@ -88,6 +88,7 @@ CREATE TABLE post (
     CONSTRAINT ck_post_title CHECK (length(btrim(title)) > 0)
 );
 
+-- UNIQUE indexes above already cover group/member/date and slot lookup prefixes.
 CREATE INDEX ix_post_group_created ON post(group_id, created_at DESC, id DESC);
 CREATE INDEX ix_post_category_group ON post(game_category_id, group_id);
 CREATE INDEX ix_post_author_group ON post(author_id, group_id);
