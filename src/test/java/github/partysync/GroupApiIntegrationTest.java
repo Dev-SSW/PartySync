@@ -11,13 +11,15 @@ import github.partysync.groupmember.GroupMemberRepository;
 import github.partysync.groupmember.auth.MemberTokenService;
 import github.partysync.groupmember.auth.SecureCodeGenerator;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import github.partysync.support.PostgresTestConfig;
-import org.springframework.context.annotation.Import;
+import github.partysync.support.TestDatabaseInitializer;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.ContextConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.MockMvcPrint;
 import org.springframework.http.HttpHeaders;
@@ -43,7 +45,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @SpringBootTest(properties = "app.security.allowed-origins=http://localhost:5173")
 @AutoConfigureMockMvc(print = MockMvcPrint.NONE)
-@Import(PostgresTestConfig.class)
+@ActiveProfiles("test")
+@ContextConfiguration(initializers = TestDatabaseInitializer.class)
 class GroupApiIntegrationTest {
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper mapper;
@@ -54,7 +57,7 @@ class GroupApiIntegrationTest {
 
     @AfterEach
     void cleanDatabase() {
-        // API는 실제로 커밋하므로 테스트 종료 시 격리된 컨테이너 또는 전용 raidsync_test DB만 정리한다.
+        // API는 실제로 커밋하므로 TEST_DB_URL로 지정한 전용 테스트 DB의 데이터만 정리한다.
         jdbc.execute("TRUNCATE TABLE groups RESTART IDENTITY CASCADE");
     }
 
@@ -297,6 +300,78 @@ class GroupApiIntegrationTest {
         mvc.perform(options("/api/groups/1").header(HttpHeaders.ORIGIN, "https://untrusted.example")
                         .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
                 .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    @Test
+    @DisplayName("이름·설명·닉네임을 정규화하고 유니코드 표현만 다른 중복 닉네임도 차단한다")
+    void normalizedNamesArePersistedAndCanonicalDuplicateNicknamesAreRejected() throws Exception {
+        String decomposed = "Cafe\u0301";
+        String canonical = "Caf\u00e9";
+        MvcResult result = mvc.perform(post("/api/groups").contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(java.util.Map.of(
+                                "name", "  Group  ", "description", "  Weekly  ",
+                                "ownerNickname", "  " + decomposed + "  "))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.group.name").value("Group"))
+                .andExpect(jsonPath("$.group.description").value("Weekly"))
+                .andExpect(jsonPath("$.member.nickname").value(canonical)).andReturn();
+        JsonNode json = mapper.readTree(result.getResponse().getContentAsString());
+        Long groupId = json.path("group").path("groupId").asLong();
+        assertThat(jdbc.queryForObject("select nickname from group_member where group_id = ?",
+                String.class, groupId)).isEqualTo(canonical);
+        mvc.perform(post("/api/groups/join").contentType(MediaType.APPLICATION_JSON)
+                        .content(joinJson(json.path("inviteCode").asString(), "  " + canonical + "  ")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("NICKNAME_CONFLICT"));
+        assertThat(jdbc.queryForObject("select count(*) from group_member where group_id = ?",
+                Long.class, groupId)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("참여 요청에 OWNER·멤버 ID·다른 그룹 ID·해시를 넣어도 권한이나 저장값을 위조할 수 없다")
+    void joinPayloadCannotAssignOwnerRoleOrChooseAnotherGroup() throws Exception {
+        Access owner = create("First", "Owner");
+        Access other = create("Second", "Other");
+        MvcResult result = mvc.perform(post("/api/groups/join").contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(java.util.Map.of(
+                                "inviteCode", owner.invite(), "nickname", "Guest",
+                                "role", "OWNER", "memberId", owner.memberId(),
+                                "groupId", other.groupId(), "accessTokenHash", "attacker-supplied-hash"))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.group.groupId").value(owner.groupId()))
+                .andExpect(jsonPath("$.member.role").value("MEMBER"))
+                .andExpect(jsonPath("$.member.accessTokenHash").doesNotExist()).andReturn();
+        JsonNode json = mapper.readTree(result.getResponse().getContentAsString());
+        Long memberId = json.path("member").path("memberId").asLong();
+        String token = json.path("memberAccessToken").asString();
+        assertThat(memberId).isNotEqualTo(owner.memberId());
+        assertThat(jdbc.queryForObject("select access_token_hash from group_member where id = ?",
+                String.class, memberId)).isEqualTo(tokens.hash(token));
+        mvc.perform(get("/api/groups/" + owner.groupId() + "/invite")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/members/me").header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.memberId").value(memberId))
+                .andExpect(jsonPath("$.role").value("MEMBER"));
+    }
+
+    @Test
+    @DisplayName("공개 API에 잘못된 인증 헤더를 첨부하면 401이며 그룹·멤버 데이터가 추가되지 않는다")
+    void invalidTokenOnPublicEndpointsIsRejectedWithoutDatabaseWrites() throws Exception {
+        Access owner = create("Group", "Owner");
+        mvc.perform(post("/api/groups").contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer invalid")
+                        .content("{\"name\":\"New Group\",\"ownerNickname\":\"New Owner\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        mvc.perform(post("/api/groups/join").contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer invalid")
+                        .content(joinJson(owner.invite(), "Guest")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        assertThat(jdbc.queryForObject("select count(*) from groups", Long.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from group_member", Long.class)).isEqualTo(1);
     }
 
     private Access create(String name, String ownerNickname) throws Exception {

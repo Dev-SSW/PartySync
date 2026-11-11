@@ -1,6 +1,7 @@
 package github.partysync.common;
 
 import org.hibernate.exception.ConstraintViolationException;
+import org.postgresql.util.PSQLException;
 
 /**
  * Spring/JPA가 감싼 예외에서 DB 제약조건 이름을 확인해 닉네임 중복과 난수 충돌을 구별
@@ -19,6 +20,12 @@ public final class DatabaseConstraints {
         // 최상위 Spring 예외만 확인하면 내부 Hibernate 예외의 제약조건 이름을 놓칠 수 있음
         for (Throwable cause = error; cause != null; cause = cause.getCause()) {
             if (cause instanceof ConstraintViolationException violation && name.equals(violation.getConstraintName())) {
+                return true;
+            }
+            // 한국어 등으로 번역된 오류 메시지는 Hibernate가 제약조건 이름을 추출하지 못할 수 있음
+            // PostgreSQL 프로토콜의 구조화된 필드는 메시지 언어와 관계없이 실제 이름을 제공
+            if (cause instanceof PSQLException postgres && postgres.getServerErrorMessage() != null
+                    && name.equals(postgres.getServerErrorMessage().getConstraint())) {
                 return true;
             }
         }
