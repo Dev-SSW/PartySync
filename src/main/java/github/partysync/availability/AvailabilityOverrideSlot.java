@@ -16,10 +16,7 @@ import lombok.NoArgsConstructor;
 
 import github.partysync.common.MinuteRange;
 
-/**
- * 날짜별 예외 일정에 속하는 가능 시간 구간
- * 부모 예외가 삭제되면 함께 삭제
- */
+/** 날짜별 예외 일정에 속하는 가능 시간 구간 */
 @Getter
 @Entity
 @Table(name = "availability_override_slot", uniqueConstraints =
@@ -43,6 +40,7 @@ public class AvailabilityOverrideSlot {
     @Column(name = "end_minute", nullable = false)
     private Integer endMinute;
 
+    /** 예외의 가능 시간 한 구간을 만들고 부모의 역방향 컬렉션에도 등록해 ORM 삭제 전파를 맞춘다. */
     public AvailabilityOverrideSlot(AvailabilityOverride availabilityOverride, int startMinute, int endMinute) {
         MinuteRange.validate(startMinute, endMinute);
         this.availabilityOverride = java.util.Objects.requireNonNull(availabilityOverride);

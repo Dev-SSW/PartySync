@@ -23,10 +23,7 @@ import java.util.List;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
-/**
- * 특정 날짜의 반복 일정을 덮어씌운다
- * 예외가 존재하지만 슬롯이 없으면 그날은 참여 불가능
- */
+/** 특정 날짜의 반복 일정을 덮어씌운다 */
 @Getter
 @Entity
 @Table(name = "availability_override", uniqueConstraints =
@@ -47,22 +44,18 @@ public class AvailabilityOverride extends CreatedEntity {
     @Column(name = "target_date", nullable = false)
     private LocalDate targetDate;
 
-    /**
-     * DB 연쇄 삭제와 ORM 삭제 상태를 동기화하기 위한 역방향 컬렉션
-     * 외부에는 공개하지 않음
-    */
+    /** DB 연쇄 삭제와 ORM 삭제 상태를 동기화하기 위한 역방향 컬렉션 */
     @Getter(AccessLevel.NONE)
     @OneToMany(mappedBy = "availabilityOverride", cascade = CascadeType.REMOVE)
     @OnDelete(action = OnDeleteAction.CASCADE)
     private List<AvailabilityOverrideSlot> slots = new ArrayList<>();
 
-    /**
-     * Slot 생성 시 부모 컬렉션도 맞춰 관리 중인 자식에게 ORM 삭제 상태가 전파
-     */
+    /** Slot 생성 시 부모 컬렉션도 맞춰 관리 중인 자식에게 ORM 삭제 상태가 전파 */
     void registerSlot(AvailabilityOverrideSlot slot) {
         slots.add(slot);
     }
 
+    /** 특정 멤버·날짜의 예외 부모를 만든다. 슬롯이 하나도 없어도 하루 전체 불가능을 나타내는 유효한 예외다. */
     public AvailabilityOverride(GroupMember groupMember, LocalDate targetDate) {
         this.groupMember = java.util.Objects.requireNonNull(groupMember);
         this.targetDate = java.util.Objects.requireNonNull(targetDate);
