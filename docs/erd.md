@@ -52,7 +52,7 @@ UNIQUE(group_id, nickname)으로 그룹 안의 중복을 금지한다. UNIQUE(id
 | start_minute | integer | 시작 분 |
 | end_minute | integer | 종료 분 |
 
-CHECK(0 <= start_minute AND start_minute < end_minute AND end_minute <= 1440). UNIQUE(group_member_id, day_of_week, start_minute, end_minute)는 정확히 같은 구간의 중복을 방지하고 멤버·요일·시작 분 조회 인덱스로도 사용한다. 시간은 시작을 포함하고 종료를 제외하는 [startMinute,endMinute)이며 1440은 24:00이다. 부분 겹침 검증과 일정 계산 Service는 아직 구현하지 않았다.
+CHECK(0 <= start_minute AND start_minute < end_minute AND end_minute <= 1440). UNIQUE(group_member_id, day_of_week, start_minute, end_minute)는 정확히 같은 구간의 중복을 방지하고 멤버·요일·시작 분 조회 인덱스로도 사용한다. 시간은 시작을 포함하고 종료를 제외하는 [startMinute,endMinute)이며 1440은 24:00이다. 일정 API는 30분 단위와 겹침을 검증하고 인접 구간을 병합한다. DB와 공통 MinuteRange는 기존 분 단위 모델을 유지한다.
 
 ## availability_override — AvailabilityOverride
 
@@ -116,7 +116,7 @@ JPA의 세 ManyToOne은 각 ID 컬럼을 쓰는 단방향 매핑이다. 그룹 �
 - UNIQUE 인덱스가 이미 지원하는 group_id, group_member_id, override_id 접두 조회에는 중복 인덱스를 추가하지 않았다.
 - 필수 입력은 NOT NULL, 텍스트 길이 및 공백은 DB와 Bean Validation으로 검사한다. SQL btrim 공백 검사와 Java @NotBlank의 유니코드 공백 판별 범위는 다르므로 API에서 입력 정규화를 통일해야 한다.
 - DB는 닉네임과 카테고리 이름의 대소문자를 구별한다. 그룹·멤버 API는 이름과 닉네임을 strip 및 Unicode NFC로 정규화하지만 엔티티·DB가 자동으로 정규화하지는 않는다.
-- 그룹 Service는 OWNER 생성·토큰 발급/해시 저장·그룹 권한을 검증한다. 일정 모델의 예외는 반복 일정을 완전히 대체하는 구조이며 실제 날짜별 적용·교집합 계산 API는 아직 없다.
+- 그룹 Service는 OWNER 생성·토큰 발급/해시 저장·그룹 권한을 검증한다. 일정 Service는 같은 멤버 행의 비관적 잠금으로 쓰기를 직렬화하고 일괄 조회 후 반복·예외를 적용한다. 그룹의 공통 가능 시간은 30분 구간별 멤버 구성으로 계산한다. 상세 요청·응답과 시간 정책은 [API 명세](api.md)의 일정 API에 있다.
 
 ## 마이그레이션과 인증 조회
 

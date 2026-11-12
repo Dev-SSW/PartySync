@@ -20,10 +20,7 @@ import github.partysync.groupmember.GroupMember;
 import github.partysync.common.MinuteRange;
 import java.time.DayOfWeek;
 
-/**
- * 매주 같은 요일에 반복되는 가능 시간
- * 일반적인 구간 겹침 검증은 후속 일정 Service에서 담당
- */
+/** 매주 같은 요일에 반복되는 가능 시간 */
 @Getter
 @Entity
 @Table(name = "weekly_availability", uniqueConstraints =
@@ -51,6 +48,7 @@ public class WeeklyAvailability {
     @Column(name = "end_minute", nullable = false)
     private Integer endMinute;
 
+    /** 반복 일정 한 구간을 생성 */
     public WeeklyAvailability(GroupMember groupMember, DayOfWeek dayOfWeek, int startMinute, int endMinute) {
         MinuteRange.validate(startMinute, endMinute);
         this.groupMember = java.util.Objects.requireNonNull(groupMember);

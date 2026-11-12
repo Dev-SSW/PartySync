@@ -17,7 +17,7 @@ Authorization: Bearer <memberAccessToken>
 - 토큰을 URL·서버 로그·분석 도구·콘솔 로그에 넣지 않는다. 생성/참여 응답은 Cache-Control: no-store다. 다른 응답에는 토큰과 해시가 없다.
 - 토큰 만료·회전·재발급·로그아웃에 의한 서버 폐기는 아직 없다. 현재는 DB 멤버가 존재하고 해시가 일치하는 동안 유효하다. 분실한 원문은 복구할 수 없다.
 - CORS_ALLOWED_ORIGINS에는 허용 Origin을 쉼표로 나열한다. 예: http://localhost:5173,https://raidsync.example. 빈 값은 교차 Origin 접근을 허용하지 않는다. *와 null Origin은 설정할 수 없다.
-- CORS는 GET/POST/OPTIONS 및 Authorization/Content-Type/Accept 헤더를 허용한다. credentials 옵션은 false다. Location 헤더는 브라우저에서 읽을 수 있다. 허용 Origin의 preflight는 인증 없이 처리하고, 미허용 Origin은 JSON 403으로 거절한다.
+- CORS는 GET/POST/PUT/DELETE/OPTIONS 및 Authorization/Content-Type/Accept 헤더를 허용한다. credentials 옵션은 false다. Location 헤더는 브라우저에서 읽을 수 있다. 허용 Origin의 preflight는 인증 없이 처리하고, 미허용 Origin은 JSON 403으로 거절한다.
 - CSRF는 Authorization 헤더 기반 REST에 맞춰 비활성화했다. 이후 쿠키 인증을 추가하면 CSRF 정책도 다시 설계해야 한다.
 - /actuator/health는 GET 공개 경로로 예약했지만 Actuator 의존성이 없어 현재 해당 엔드포인트는 제공하지 않는다.
 
@@ -208,6 +208,168 @@ GET /api/groups/1/invite — 해당 그룹 OWNER 인증 필요. 요청 JSON 없�
 5. 409이면 닉네임 변경을 안내한다. 토큰 분실 시 원문 복구·재발급 API는 아직 없다.
 
 실서비스에서는 HTTPS를 사용하고 브라우저 저장 방식과 XSS 대응을 함께 결정한다. 서버는 쿠키 기반 자동 인증을 제공하지 않는다. 공개 그룹 생성·참여 API의 rate limit, 초대 코드 회전, 토큰 만료/폐기는 후속 운영 보강 사항이다.
+
+## 일정 API
+
+일정 API는 모두 멤버 Bearer 인증이 필요하다. 쓰기는 OWNER/MEMBER 모두 본인 일정에만 적용되며 body의 memberId로 대상을 지정할 수 없다. 그룹 조회는 같은 그룹의 멤버만 가능하다.
+
+| Method | Endpoint | 성공 | 의미 |
+|---|---|---|---|
+| PUT | /api/members/me/weekly-availability | 200 | 본인 반복 일정 전체 교체 |
+| GET | /api/members/me/weekly-availability | 200 | 요일·시작 분 순서 조회 |
+| PUT | /api/members/me/availability-overrides/{date} | 200 | 해당 날짜 예외 생성 또는 슬롯 전체 교체 |
+| DELETE | /api/members/me/availability-overrides/{date} | 204 | 예외 삭제, 반복 일정으로 복원 |
+| GET | /api/members/me/availability-overrides?from=2026-11-16&to=2026-11-22 | 200 | 기간 내 본인 예외 목록 |
+| GET | /api/groups/{groupId}/availability?from=2026-11-16&to=2026-11-22 | 200 | 그룹 멤버별 날짜의 최종 가능 시간 |
+| GET | /api/groups/{groupId}/common-availability?from=2026-11-16&to=2026-11-22 | 200 | 시간대별 참여 인원·멤버·전원 가능 여부 |
+
+### 공통 시간·날짜 정책
+
+- 하루의 시간은 [startMinute,endMinute)이며 0 <= startMinute < endMinute <= 1440이다. 1440은 24:00이고 시작값으로 사용할 수 없다.
+- API 입력은 JSON 정수이면서 30분 배수인 값만 받는다. 소수를 정수로 잘라 처리하지 않는다. MONDAY~SUNDAY를 사용하며 반환 요일 순서는 월요일부터 일요일이다.
+- 같은 요일/날짜의 겹치는 구간과 완전히 같은 구간은 400으로 거절한다. 맞닿은 구간은 정렬 후 병합한다.
+- 자정을 넘는 시간은 두 요일 또는 두 날짜로 나누어 요청한다. 금요일 23:00~토요일 02:00은 금요일 [1380,1440), 토요일 [0,120)이다.
+- 반복 일정은 요청 전체 최대 336개, 날짜별 예외는 최대 48개 구간을 받는다. slots는 필수이며 null이나 null 원소는 허용하지 않는다.
+- 모든 기간 조회는 from/to 양 끝을 포함하고 최대 31일이다. from > to, 누락·잘못된 날짜, 32일 이상 요청은 400이다. 기준은 Asia/Seoul의 달력 날짜다.
+- 예외가 있으면 그날 반복 일정을 완전히 대체한다. 예외의 빈 slots는 하루 전체 불가능이며, 예외가 없으면 반복 일정을 사용한다.
+- 반복 일정을 교체·비워도 이미 등록한 날짜별 예외는 유지된다. 예외 삭제 후에만 반복 일정으로 돌아간다.
+- 그룹 응답은 날짜 → 멤버 ID → 시작 분 순서다. 일정이 없는 멤버와 날짜도 생략하지 않는다.
+- 입력 전체를 검증한 후 멤버 행을 잠그고 하나의 트랜잭션으로 교체한다. 같은 멤버의 일정 쓰기는 직렬화되며 마지막으로 저장된 전체 요청이 남는다. 클라이언트 버전 기반 충돌 감지는 제공하지 않는다.
+- 그룹/예외 기간 조회는 같은 DB 스냅샷에서 일괄 조회하고 메모리에서 계산한다. 날짜마다 추가 DB 조회를 하지 않는다.
+
+### 반복 일정 저장·조회
+
+PUT /api/members/me/weekly-availability 요청:
+
+```json
+{
+  "slots": [
+    {"dayOfWeek": "MONDAY", "startMinute": 1140, "endMinute": 1260},
+    {"dayOfWeek": "MONDAY", "startMinute": 1260, "endMinute": 1440}
+  ]
+}
+```
+
+200 응답 및 이후 GET 응답(인접 구간 병합):
+
+```json
+{
+  "slots": [
+    {"dayOfWeek": "MONDAY", "startMinute": 1140, "endMinute": 1440}
+  ]
+}
+```
+
+등록하지 않은 요일은 참여 불가능이다. {"slots":[]}로 모든 반복 일정을 삭제한다. 저장 실패 또는 검증 오류가 있으면 이전 반복 일정이 유지된다.
+
+### 날짜별 예외 저장·삭제·조회
+
+PUT /api/members/me/availability-overrides/2026-11-16 요청:
+
+```json
+{
+  "slots": [
+    {"startMinute": 1260, "endMinute": 1380}
+  ]
+}
+```
+
+200 응답:
+
+```json
+{
+  "date": "2026-11-16",
+  "slots": [
+    {"startMinute": 1260, "endMinute": 1380}
+  ]
+}
+```
+
+같은 날짜로 다시 PUT하면 기존 슬롯만 전체 교체하며 예외 행의 ID·생성 시각은 유지한다. {"slots":[]}도 유효한 예외다.
+
+GET /api/members/me/availability-overrides?from=2026-11-16&to=2026-11-17 응답 예시:
+
+```json
+[
+  {"date": "2026-11-16", "slots": [{"startMinute": 1260, "endMinute": 1380}]},
+  {"date": "2026-11-17", "slots": []}
+]
+```
+
+예외가 등록된 날짜만 반환하며 빈 슬롯 예외도 포함한다. 등록된 예외가 없으면 []다. DELETE /api/members/me/availability-overrides/2026-11-16은 관련 슬롯까지 삭제하고 응답 본문 없이 204를 반환한다. 이미 삭제된 경우에도 204다.
+
+### 그룹 멤버별 최종 가능 시간
+
+GET /api/groups/1/availability?from=2026-11-16&to=2026-11-16 응답 예시:
+
+```json
+{
+  "groupId": 1,
+  "days": [
+    {
+      "date": "2026-11-16",
+      "members": [
+        {
+          "memberId": 10,
+          "nickname": "파티장",
+          "source": "OVERRIDE",
+          "slots": [{"startMinute": 1260, "endMinute": 1380}]
+        },
+        {
+          "memberId": 11,
+          "nickname": "새로운멤버",
+          "source": "WEEKLY",
+          "slots": [{"startMinute": 1200, "endMinute": 1320}]
+        }
+      ]
+    }
+  ]
+}
+```
+
+source는 WEEKLY 또는 OVERRIDE다. 반복 일정이 없으면 WEEKLY + 빈 slots, 하루 전체 불가능 예외는 OVERRIDE + 빈 slots다. 기존의 분 단위 데이터도 조회 시 합집합으로 정규화해 중복 표시를 방지한다.
+
+### 공통 시간 및 참여 가능 인원
+
+동일한 조건에서 GET /api/groups/1/common-availability?from=2026-11-16&to=2026-11-16 응답 예시:
+
+```json
+{
+  "groupId": 1,
+  "days": [
+    {
+      "date": "2026-11-16",
+      "totalMembers": 2,
+      "timeSlots": [
+        {"startMinute": 0, "endMinute": 1200, "availableCount": 0, "availableMemberIds": [], "allAvailable": false},
+        {"startMinute": 1200, "endMinute": 1260, "availableCount": 1, "availableMemberIds": [11], "allAvailable": false},
+        {"startMinute": 1260, "endMinute": 1320, "availableCount": 2, "availableMemberIds": [10, 11], "allAvailable": true},
+        {"startMinute": 1320, "endMinute": 1380, "availableCount": 1, "availableMemberIds": [10], "allAvailable": false},
+        {"startMinute": 1380, "endMinute": 1440, "availableCount": 0, "availableMemberIds": [], "allAvailable": false}
+      ]
+    }
+  ]
+}
+```
+
+하루의 48개 30분 구간을 계산하고 참여 멤버 구성이 같은 인접 구간을 병합한다. 인원수만 같고 멤버가 다르면 병합하지 않는다. 0명 구간도 포함하므로 결과는 항상 [0,1440)을 빈틈없이 덮는다. 프론트는 이를 30분 칸으로 펼쳐 표시할 수 있다.
+
+availableMemberIds는 GroupMember ID 오름차순이다. allAvailable은 그룹 인원이 1명 이상이며 availableCount가 totalMembers와 같을 때만 true다. 한 명이라도 해당 시간에 불가능하면 false이고, 빈 그룹도 false다. 기존 데이터에 30분 배수가 아닌 구간이 있으면 30분 전체를 덮는 칸만 가능으로 계산한다.
+
+### 일정 오류 코드
+
+기존 공통 JSON 오류 형식을 그대로 사용한다.
+
+| HTTP | code | 상황 |
+|---|---|---|
+| 400 | INVALID_REQUEST | 날짜 형식·필수값·길이/개수·필드 범위 오류 |
+| 400 | INVALID_TIME_SLOT | 시작/종료 관계 또는 30분 단위 위반 |
+| 400 | OVERLAPPING_TIME_SLOTS | 같은 요일 또는 날짜의 구간 겹침 |
+| 400 | INVALID_DATE_RANGE | 역순 기간 또는 31일 초과 |
+| 401 | UNAUTHORIZED | 멤버 토큰 누락·불일치 |
+| 403 | FORBIDDEN | 다른 그룹 일정 조회 |
+| 404 | GROUP_NOT_FOUND | 존재하지 않는 그룹 |
+| 500 | INTERNAL_ERROR | 저장 등 처리 실패, SQL/내부 예외는 제외 |
 
 ## 참고
 

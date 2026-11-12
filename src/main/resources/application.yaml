@@ -21,6 +21,8 @@ spring:
     clean-disabled: true
   jackson:
     time-zone: Asia/Seoul
+    deserialization:
+      accept-float-as-int: false
 
 app:
   security:

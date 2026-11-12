@@ -13,7 +13,10 @@ Java 21, Spring Boot 4.1.2, Gradle 9.8.2, Spring Web MVC, Spring Data JPA, Valid
 - 그룹 정보, COUNT 기반 인원 수, 정렬된 멤버 목록과 내 정보를 조회한다.
 - 초대 정보는 해당 그룹 OWNER만 조회할 수 있다.
 - 멤버 토큰은 256비트 난수로 발급하고 SHA-256 해시만 DB에 저장한다.
-- 반복 일정·날짜별 예외·카테고리·게시글은 엔티티와 Repository까지 구현되어 있다. 해당 API와 일정 계산은 아직 제공하지 않는다.
+- 본인의 주간 반복 일정을 전체 교체하고 날짜별 예외 시간을 등록·수정·삭제한다.
+- 그룹 멤버별 최종 가능 시간과 시간대별 참여 인원·전원 가능 시간을 조회한다. 예외는 반복 일정을 완전히 대체하며 빈 예외는 하루 전체 불가능이다.
+- 일정 입력은 30분 단위이며 기간 조회는 양 끝을 포함해 최대 31일이다. 겹침은 거절하고 인접 구간은 병합한다.
+- 카테고리·게시글은 엔티티와 Repository까지 구현되어 있으며 해당 API는 아직 제공하지 않는다.
 - 프론트엔드, 토큰 만료·재발급·폐기, 그룹 삭제·추방·권한 위임은 제공하지 않는다.
 
 ## 프로젝트 구조
@@ -22,7 +25,7 @@ Java 21, Spring Boot 4.1.2, Gradle 9.8.2, Spring Web MVC, Spring Data JPA, Valid
 src/main/java/github/partysync/
   group/          그룹 API·요청/응답·트랜잭션
   groupmember/    멤버 정보·권한·Bearer 인증
-  availability/   반복 일정·날짜별 예외 모델
+  availability/   일정 API·저장·예외 적용·공통 시간 계산
   category/       그룹별 카테고리 모델
   post/           게시글 모델
   common/         감사 시간·오류 처리·입력 검증
@@ -79,6 +82,8 @@ Flyway로 스키마를 적용한 뒤 Hibernate ddl-auto=validate로 매핑을 �
 | GroupApiControllerTest | 아니요 | HTTP 상태·응답 형식, 필수 입력 검증, 인증 누락, 공통 오류 처리. Service만 대체한다. |
 | GroupApiIntegrationTest | 예 | 실제 생성·참여·조회, 토큰 인증·그룹 권한, 동시 가입, 롤백·충돌 재시도, 권한 위조 차단·입력 정규화 |
 | PartysyncApplicationTests | 예 | Flyway·Hibernate 매핑, Repository, UNIQUE/CHECK/FK, 예외 일정 삭제 전파 |
+| AvailabilityApiIntegrationTest | 예 | 일정 전체 교체·예외 적용, 삭제 복원, 본인 권한, 동시 수정·롤백, 기간별 쿼리 수 |
+| AvailabilityCalculatorTest | 아니요 | 30분 입력·겹침·인접 병합, 예외 우선, 참여 인원과 전원 가능 시간·날짜 경계 |
 | MinuteRangeTest / MemberTokenServiceTest / DatabaseConstraintsTest | 아니요 | 시간 경계, 토큰·해시, 번역된 PostgreSQL 오류의 제약조건 판별 |
 | TestDatabaseInitializerTest | 아니요 | 개발 DB 오연결 및 JPA·Flyway 연결 불일치 차단 |
 
@@ -91,7 +96,7 @@ API 요청·응답만 빠르게 확인할 때는 DB 없이 다음을 실행한�
 DB 없이 단위 테스트만 실행할 수도 있다.
 
 ```powershell
-.\gradlew.bat test --tests '*MinuteRangeTest' --tests '*MemberTokenServiceTest' --tests '*DatabaseConstraintsTest' --tests '*TestDatabaseInitializerTest'
+.\gradlew.bat test --tests '*MinuteRangeTest' --tests '*MemberTokenServiceTest' --tests '*DatabaseConstraintsTest' --tests '*TestDatabaseInitializerTest' --tests '*AvailabilityCalculatorTest'
 ```
 
 ## 인증과 보안
