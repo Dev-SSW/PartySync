@@ -1,0 +1,65 @@
+name: PartySync CI
+
+on:
+  pull_request:
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: partysync_test
+          POSTGRES_USER: partysync_ci
+          POSTGRES_PASSWORD: ci-only-ephemeral-password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U partysync_ci -d partysync_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      # CI 내 일회성 DB만 사용합니다. 실제 개발·운영 접속 정보는 넣지 않습니다.
+      DB_URL: jdbc:postgresql://localhost:5432/unused_application_db
+      DB_USERNAME: partysync_ci
+      DB_PASSWORD: ci-only-ephemeral-password
+      TEST_DB_URL: jdbc:postgresql://localhost:5432/partysync_test
+      TEST_DB_USERNAME: partysync_ci
+      TEST_DB_PASSWORD: ci-only-ephemeral-password
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Build and test against isolated PostgreSQL
+        run: bash ./gradlew build --no-daemon
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
