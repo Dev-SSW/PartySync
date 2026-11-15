@@ -35,6 +35,7 @@ const group = {
 }
 function dashboardFetch(role = 'MEMBER') {
   return vi.fn().mockImplementation(async (url: string) => {
+    if (url.includes('/posts?')) return json({ content: [], page: 0, size: 5, totalElements: 0, totalPages: 0, hasNext: false })
     if (url.endsWith('/members/me')) return json({ ...me, role })
     if (url.endsWith('/members')) return json([{ ...me, role, joinedAt: '2026-11-13T00:00:00' }])
     if (url.includes('common-availability')) return json({ groupId: 1, days: [] })
@@ -272,7 +273,8 @@ describe('일정 UI', () => {
   it('반복 일정 저장 실패 시 수정한 선택을 유지한다', async () => {
     writeSessions([session])
     const fetch = vi.fn().mockImplementation(async (url: string, options: RequestInit) => {
-      if (url.endsWith('/members/me')) return json(me)
+      if (url.includes('/posts?')) return json({ content: [], page: 0, size: 5, totalElements: 0, totalPages: 0, hasNext: false })
+    if (url.endsWith('/members/me')) return json(me)
       if (options.method === 'PUT') return json({}, 500)
       return json({ slots: [] })
     })

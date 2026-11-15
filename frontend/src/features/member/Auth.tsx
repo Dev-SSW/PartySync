@@ -5,11 +5,13 @@ import { api, AUTH_INVALID, isTemporaryError } from '../../api/client'
 import type { Membership } from '../../types/api'
 import { inviteHash, readSessions, STORAGE_KEY, writeSessions, type Session } from './storage'
 import { Feedback, Loading } from '../../components/Feedback'
+import { AccountProvider } from '../account/AccountAuth'
 
 interface AuthState {
   sessions: Session[]
-  remember: (data: Membership, code?: string) => Promise<void>
+  remember: (data: Membership, code?: string, accountUserId?: number) => Promise<void>
   forget: (id: number) => void
+  forgetAccount: () => void
 }
 const AuthContext = createContext<AuthState | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -28,6 +30,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setSessions(next)
     clearGroup(id)
+  }
+  function forgetAccount() {
+    const linked = readSessions().filter(s => s.accountUserId)
+    try { writeSessions(readSessions().filter(s => !s.accountUserId)) } catch { sessionStorage.removeItem('partysync.account-members.v1') }
+    setSessions(readSessions())
+    for (const session of linked) clearGroup(session.groupId)
   }
   useEffect(() => {
     const invalid = (event: Event) => {
@@ -59,14 +67,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('storage', sync)
     }
   }, [client])
-  async function remember(data: Membership, code?: string) {
-    const hash = code ? await inviteHash(code) : undefined
+  async function remember(data: Membership, code?: string, accountUserId?: number) {
+    const hash = code ? await inviteHash(code) : readSessions().find(s => s.groupId === data.group.groupId)?.inviteHash
     const session: Session = {
       groupId: data.group.groupId,
       token: data.memberAccessToken,
       name: data.group.name,
       inviteHash: hash,
       revision: crypto.randomUUID(),
+      accountUserId,
+      expiresAt: data.expiresAt,
     }
     const next = [...readSessions().filter((s) => s.groupId !== session.groupId), session]
     writeSessions(next)
@@ -74,7 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSessions(next)
   }
   return (
-    <AuthContext.Provider value={{ sessions, remember, forget }}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ sessions, remember, forget, forgetAccount }}><AccountProvider>{children}</AccountProvider></AuthContext.Provider>
   )
 }
 export function useAuth() {
@@ -101,11 +111,12 @@ export function RequireMember() {
       <section className="narrow page">
         <h1>그룹 참여가 필요해요</h1>
         <p className="muted">
-          이 브라우저에 해당 그룹의 인증 정보가 없습니다. 초대 링크로 참여해 주세요.
+          계정에 연결한 그룹은 로그인 후 기존 멤버로 다시 입장하세요. 비회원은 초대 링크로 참여할 수 있어요.
         </p>
         <Link className="button primary" to="/join">
           초대 코드로 참여
         </Link>
+        <Link className="button" to="/account/groups">로그인한 계정의 그룹 보기</Link>
       </section>
     )
   if (me.isPending) return <Loading />

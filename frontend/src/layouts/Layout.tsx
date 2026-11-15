@@ -1,8 +1,10 @@
 import { CalendarDays, ArrowUpRight, UsersRound } from 'lucide-react'
 import { Link, Outlet } from 'react-router-dom'
 import { useAuth } from '../features/member/Auth'
+import { useAccount } from '../features/account/AccountAuth'
 export function Layout() {
   const { sessions } = useAuth()
+  const { account } = useAccount()
   return (
     <>
       <header className="app-header">
@@ -14,6 +16,7 @@ export function Layout() {
             Party<span>Sync</span>
           </Link>
           <nav aria-label="주 메뉴">
+            <Link className="button small" to={account ? '/account' : '/login'}>{account ? '내 계정' : '로그인'}</Link>
             <span className="header-note">
               <span className="status-dot" /> 함께할 시간을 찾다
             </span>

@@ -6,6 +6,7 @@ configure({ asyncUtilTimeout: 2500 })
 afterEach(() => {
   cleanup()
   localStorage.clear()
+  sessionStorage.clear()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })

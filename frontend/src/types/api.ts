@@ -23,6 +23,7 @@ export interface Membership {
   member: Member
   memberAccessToken: string
   inviteCode?: string
+  expiresAt?: string
 }
 export interface Slot {
   startMinute: number

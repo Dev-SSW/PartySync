@@ -8,6 +8,8 @@ import { useAuth } from '../features/member/Auth'
 import { inviteHash } from '../features/member/storage'
 import { normalizeInvite } from '../utils/invite'
 import type { Membership } from '../types/api'
+import { useAccount } from '../features/account/AccountAuth'
+import { accountApi } from '../api/account'
 
 export function GroupForm({ mode }: { mode: 'create' | 'join' }) {
   const creating = mode === 'create'
@@ -20,6 +22,7 @@ export function GroupForm({ mode }: { mode: 'create' | 'join' }) {
   const [unsaved, setUnsaved] = useState<{ data: Membership; code?: string } | null>(null)
   const [storageError, setStorageError] = useState(false)
   const { remember, sessions } = useAuth()
+  const account = useAccount()
   const navigate = useNavigate()
   const [existing, setExisting] = useState<number | null>(null)
   useEffect(() => {
@@ -47,6 +50,16 @@ export function GroupForm({ mode }: { mode: 'create' | 'join' }) {
     setUnsaved({ data, code: invitation })
     try {
       await remember(data, invitation)
+      if (account.ready && account.credentials) {
+        try {
+          const linked = await accountApi.claim(account.credentials, data.memberAccessToken)
+          await remember(linked, invitation, account.account!.user.userId)
+        } catch {
+          // 먼저 비회원 토큰을 저장했으므로 연결 실패 시에도 가입 정보를 잃지 않는다.
+          navigate('/account?linkFailed=1', { replace: true })
+          return
+        }
+      }
       navigate(`/groups/${data.group.groupId}`, { replace: true })
     } catch {
       setStorageError(true)
