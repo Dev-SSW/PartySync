@@ -1843,3 +1843,65 @@ textarea {
     font-size: 14px;
   }
 }
+
+/* 그룹 게시판: 기존 캘린더와 분리된 목록·텍스트·사이드 패널. */
+.board-page { max-width:1100px; margin-inline:auto; }
+.board-page>.section-head { margin-bottom:24px; flex-wrap:wrap; }
+.board-list { margin-top:24px; padding:22px; }
+.board-filter { max-width:300px; margin-bottom:22px; }
+.board-empty { padding:26px 12px; color:#aab3c9; line-height:1.8; }
+.post-list-head, .post-list a { display:grid; grid-template-columns:minmax(0,1fr) 120px 145px; gap:14px; align-items:center; }
+.post-list-head { color:#a4adc4; font-size:12px; padding:12px; border-bottom:1px solid #42485d; }
+.post-list li { border-bottom:1px solid #343b4f; }
+.post-list a { padding:18px 12px; border-radius:6px; }
+.post-list a:hover { background:#272a3b; }
+.post-list-title { display:flex; align-items:center; gap:10px; min-width:0; }
+.post-list-title strong { overflow-wrap:anywhere; font-size:14px; }
+.post-list-title .badge { max-width:150px; overflow:hidden; text-overflow:ellipsis; }
+.post-author, .post-list time { color:#aeb7cc; font-size:12px; overflow-wrap:anywhere; }
+.pagination { display:flex; align-items:center; justify-content:center; gap:18px; padding:22px 0 0; font-size:12px; color:#b4bdd0; }
+.post-detail { padding:30px; }
+.post-detail h1 { margin-top:16px; }
+.post-meta { display:flex; flex-wrap:wrap; gap:16px; font-size:12px; color:#a7b2c9; padding:16px 0 22px; border-bottom:1px solid #3a4154; }
+.post-content { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.9; padding-block:30px; min-height:180px; }
+.post-content a { color:#b7a1ff; text-decoration:underline; text-underline-offset:3px; }
+.post-actions { display:flex; gap:12px; justify-content:flex-end; padding-top:18px; border-top:1px solid #3a4154; }
+.post-form { display:flex; flex-direction:column; gap:20px; padding:26px; margin-top:22px; }
+.post-form>button { align-self:flex-end; }
+.post-form textarea { line-height:1.7; }
+.button.danger { color:#ffc1ca; border-color:#754152; }
+.category-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:22px; margin-top:24px; }
+.category-layout .post-form { margin-top:0; align-self:start; }
+.category-list { padding:8px 22px; }
+.category-list article { padding:20px 0; border-bottom:1px solid #394053; }
+.category-list article:last-child { border-bottom:0; }
+.category-list p { white-space:pre-wrap; overflow-wrap:anywhere; margin-block:10px 16px; font-size:12px; }
+.latest-posts { padding:18px; width:100%; }
+.latest-posts h2 { display:flex; align-items:center; gap:7px; font-size:15px; }
+.latest-posts .loading { min-height:100px; }
+.board-text-link { color:#c4b2f3; display:inline-flex; align-items:center; gap:5px; font-size:12px; }
+.latest-post-list { margin-top:15px; }
+.latest-post-list li { border-top:1px solid #343b4e; }
+.latest-post-list a { display:flex; flex-direction:column; align-items:start; gap:9px; padding:14px 2px; }
+.latest-post-list strong { font-size:13px; overflow-wrap:anywhere; line-height:1.6; }
+.latest-post-list a:hover strong { color:#cab6ff; }
+@media(max-width:760px) {
+  .board-page>.section-head { flex-direction:column; align-items:start; }
+  .board-list, .post-detail, .post-form { padding:18px; }
+  .post-list-head { display:none; }
+  .post-list a { grid-template-columns:minmax(0,1fr) auto; gap:10px; padding-inline:0; }
+  .post-list-title { grid-column:1/-1; flex-direction:column; align-items:start; gap:9px; }
+  .post-list time { font-size:11px; }
+  .category-layout { grid-template-columns:minmax(0,1fr); }
+  .pagination { gap:10px; font-size:11px; }
+  .board-page>.actions, .post-actions { flex-wrap:wrap; }
+  .latest-posts { padding:17px; }
+}
+.account-page { display: grid; gap: 20px; max-width: 1000px; margin-inline: auto; }
+.account-page > .card { padding: 20px; }
+.account-groups { list-style: none; margin: 0; padding: 0; }
+.account-groups li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 16px; border-bottom: 1px solid #303442; }
+.account-groups li > div { min-width: 0; overflow-wrap: anywhere; }
+.account-groups p { margin: 6px 0; }
+.account-groups .board-text-link { display: block; margin-top: 8px; }
+@media (max-width: 600px) { .account-groups li { flex-wrap: wrap; } .account-groups .actions { flex-wrap: wrap; } }

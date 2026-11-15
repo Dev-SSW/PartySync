@@ -1,0 +1,15 @@
+import type { AccountUser } from '../../api/account'
+
+export const ACCOUNT_KEY = 'partysync.account.v1'
+export interface AccountSession { token: string; user: AccountUser; revision: string; expiresAt: string }
+/** sessionStorage도 XSS에 노출될 수 있다. 탭 수명으로 보관 범위를 줄이며 권한은 서버에서 확인한다. */
+export function readAccount(): AccountSession | null {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(ACCOUNT_KEY) || 'null')
+    return value && /^u_[A-Za-z0-9_-]{43}$/.test(value.token) && Number.isSafeInteger(value.user?.userId) && typeof value.revision === 'string' ? value : null
+  } catch { return null }
+}
+export function storeAccount(value: AccountSession | null) {
+  if (value) sessionStorage.setItem(ACCOUNT_KEY, JSON.stringify(value))
+  else sessionStorage.removeItem(ACCOUNT_KEY)
+}

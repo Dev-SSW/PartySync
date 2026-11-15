@@ -17,6 +17,7 @@ import { useAuth, useGroupSession } from '../features/member/Auth'
 import { Feedback, Loading } from '../components/Feedback'
 import { AvailabilityWorkspace } from '../features/availability/AvailabilityWorkspace'
 import { OverrideEditor } from '../features/availability/OverrideEditor'
+import { LatestPosts } from '../features/board/LatestPosts'
 import { addDays, monday, seoulToday } from '../utils/schedule'
 
 export function Dashboard() {
@@ -252,6 +253,7 @@ export function Dashboard() {
           </p>
         </div>
         <aside className="sidebar">
+          <LatestPosts />
           <details className="card member-card">
             <summary className="compact-members-summary">
               파티원 {group.data.memberCount}명 · 내 정보: {me.data!.nickname}

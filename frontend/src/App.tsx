@@ -5,6 +5,9 @@ import { GroupForm } from './pages/GroupForms'
 import { RequireMember } from './features/member/Auth'
 import { Dashboard } from './pages/Dashboard'
 import { Weekly } from './pages/Weekly'
+import { PostList, PostDetail, PostEditor } from './pages/Posts'
+import { Categories } from './pages/Categories'
+import { AccountForm, AccountPage } from './pages/Account'
 
 export const routes: RouteObject[] = [
   {
@@ -20,6 +23,10 @@ export const routes: RouteObject[] = [
     ),
     children: [
       { path: '/', element: <Home /> },
+      { path: '/login', element: <AccountForm key="login" /> },
+      { path: '/register', element: <AccountForm key="register" registering /> },
+      { path: '/account', element: <AccountPage /> },
+      { path: '/account/groups', element: <AccountPage /> },
       { path: '/groups/new', element: <GroupForm key="create" mode="create" /> },
       { path: '/join', element: <GroupForm key="join" mode="join" /> },
       { path: '/join/:inviteCode', element: <GroupForm mode="join" /> },
@@ -28,6 +35,11 @@ export const routes: RouteObject[] = [
         children: [
           { path: '/groups/:groupId', element: <Dashboard /> },
           { path: '/groups/:groupId/schedule/weekly', element: <Weekly /> },
+          { path: '/groups/:groupId/posts', element: <PostList /> },
+          { path: '/groups/:groupId/posts/new', element: <PostEditor key="new-post" /> },
+          { path: '/groups/:groupId/posts/:postId', element: <PostDetail /> },
+          { path: '/groups/:groupId/posts/:postId/edit', element: <PostEditor key="edit-post" editing /> },
+          { path: '/groups/:groupId/categories', element: <Categories /> },
         ],
       },
       {

@@ -34,6 +34,7 @@ function setup({
   const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status })
   let shouldFail = fail
   const fetch = vi.fn().mockImplementation(async (url: string, options: RequestInit) => {
+    if (url.includes('/posts?')) return json({ content: [], page: 0, size: 5, totalElements: 0, totalPages: 0, hasNext: false })
     if (url.endsWith('/members/me')) return json({ ...members[0], groupId: 1 })
     if (url.endsWith('/members')) return json(members)
     if (options.method === 'PUT') {
