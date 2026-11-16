@@ -40,6 +40,7 @@ public class SecurityConfig {
             MemberAuthenticationService authentication,
             SecurityErrorWriter errors,
             github.partysync.account.AccountService accounts,
+            PublicApiRateLimiter publicLimits,
             @Qualifier("corsConfigurationSource") CorsConfigurationSource corsSource
     ) throws Exception {
         CorsFilter corsFilter = new CorsFilter(corsSource);
@@ -56,6 +57,8 @@ public class SecurityConfig {
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable)
+                // 운영 TLS와 HSTS는 Caddy에서 관리하며 HTTPS 검증 후 명시적으로 활성화한다.
+                .headers(headers -> headers.httpStrictTransportSecurity(hsts -> hsts.disable()))
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.write(response, 401))
                         .accessDeniedHandler((request, response, exception) -> errors.write(response, 403)))
@@ -63,12 +66,14 @@ public class SecurityConfig {
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/groups", "/api/groups/join", "/api/auth/register", "/api/auth/login").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/actuator/health").permitAll()
+                        .requestMatchers("/actuator/**").denyAll()
                         .requestMatchers("/api/account/**", "/api/auth/logout").hasRole("ACCOUNT")
                         .requestMatchers("/api/groups/**", "/api/members/**").hasAnyRole("OWNER", "MEMBER")
                         .anyRequest().authenticated())
                 .addFilterBefore(new MemberAuthenticationFilter(authentication, errors, accounts),
                         UsernamePasswordAuthenticationFilter.class)
-                .addFilterBefore(corsFilter, MemberAuthenticationFilter.class)
+                .addFilterBefore(new PublicApiRateLimitFilter(publicLimits, errors), MemberAuthenticationFilter.class)
+                .addFilterBefore(corsFilter, PublicApiRateLimitFilter.class)
                 .build();
     }
 

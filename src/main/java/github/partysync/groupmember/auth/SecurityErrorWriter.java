@@ -42,8 +42,8 @@ public class SecurityErrorWriter {
         if (status == 401) {
             response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
         }
-        String code = status == 401 ? "UNAUTHORIZED" : status == 403 ? "FORBIDDEN" : "INTERNAL_ERROR";
-        String message = status == 401 ? "유효한 멤버 인증이 필요합니다." : status == 403 ? "접근 권한이 없습니다." : "요청 처리 중 오류가 발생했습니다.";
+        String code = status == 401 ? "UNAUTHORIZED" : status == 403 ? "FORBIDDEN" : status == 429 ? "PUBLIC_API_RATE_LIMITED" : "INTERNAL_ERROR";
+        String message = status == 401 ? "유효한 멤버 인증이 필요합니다." : status == 403 ? "접근 권한이 없습니다." : status == 429 ? "요청이 많습니다. 잠시 후 다시 시도하세요." : "요청 처리 중 오류가 발생했습니다.";
         mapper.writeValue(response.getOutputStream(), new ApiError(status, code, message));
     }
 }

@@ -1,0 +1,69 @@
+spring:
+  autoconfigure:
+    exclude: org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
+  config:
+    import: 'configtree:/run/secrets/'
+  datasource:
+    # DB_PASSWORD is read from /run/secrets/DB_PASSWORD, never baked into an image.
+    url: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+    username: ${APP_DB_USER}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:5}
+      minimum-idle: 1
+      connection-timeout: 10000
+      initialization-fail-timeout: 60000
+  jpa:
+    show-sql: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+    clean-disabled: true
+    validate-on-migrate: true
+  mvc:
+    log-request-details: false
+
+server:
+  port: 8080
+  shutdown: graceful
+  forward-headers-strategy: native
+  tomcat:
+    redirect-context-root: false
+    accesslog:
+      enabled: false
+    threads:
+      max: 25
+      min-spare: 2
+    remoteip:
+      # This exact address must match reverse-proxy's address on the private proxy network.
+      internal-proxies: '${TRUSTED_PROXY_REGEX:172[.]30[.]77[.]2}'
+      remote-ip-header: X-Forwarded-For
+      protocol-header: X-Forwarded-Proto
+      host-header: X-Forwarded-Host
+      port-header: X-Forwarded-Port
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      show-components: never
+
+logging:
+  level:
+    root: INFO
+    org.hibernate.SQL: OFF
+    org.hibernate.orm.jdbc.bind: OFF
+    org.springframework.web: WARN
+    org.springframework.security: WARN
+
+app:
+  public-rate-limit:
+    enabled: true
+    create-attempts: ${GROUP_CREATE_ATTEMPTS:10}
+    join-attempts: ${GROUP_JOIN_ATTEMPTS:30}
+    window: ${GROUP_RATE_WINDOW:PT1M}
