@@ -32,6 +32,7 @@ const messages: Record<string, string> = {
   LOGIN_ID_CONFLICT: '이미 사용 중인 로그인 ID입니다.',
   INVALID_PASSWORD: '비밀번호는 12자 이상, UTF-8 72바이트 이하로 입력해 주세요.',
   AUTH_RATE_LIMITED: '로그인 시도가 많습니다. 5분 후 다시 시도해 주세요.',
+  PUBLIC_API_RATE_LIMITED: '그룹 생성·참여 요청이 많습니다. 잠시 후 다시 시도해 주세요.',
   CLAIM_UNAVAILABLE: '사용할 수 없는 비회원 참여 정보입니다. 이미 연결한 그룹은 내 계정에서 다시 입장해 주세요.',
   MEMBERSHIP_CONFLICT: '이 계정은 이미 해당 그룹에 연결되어 있습니다. 내 계정에서 기존 멤버로 입장해 주세요.',
   CATEGORY_NAME_CONFLICT: '이 그룹에서 이미 사용 중인 카테고리 이름입니다.',

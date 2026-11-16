@@ -40,7 +40,13 @@ out/
 .env
 .env.*
 !.env.example
-/docs/pt.md
+!deploy/.env.prod.example
+deploy/secrets/
+deploy/backups/
+deploy/state/
+*.dump
+*.dump.sha256
+/docs/pt*.md
 
 ### Frontend ###
 frontend/node_modules/

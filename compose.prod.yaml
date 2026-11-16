@@ -1,0 +1,126 @@
+name: ${COMPOSE_PROJECT_NAME:-partysync}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '3'
+
+services:
+  postgres:
+    image: postgres:17-alpine@sha256:a77aa70e641402a21411b92b721c58d10f23b50ae5fdd2333efd22d166e1e5f7
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Set the dedicated production DB name}
+      POSTGRES_USER: partysync_admin
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin_password
+      APP_DB_USER: ${APP_DB_USER:-partysync_app}
+    secrets:
+      - postgres_admin_password
+      - DB_PASSWORD
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/postgres/init-app.sh:/docker-entrypoint-initdb.d/10-app.sh:ro
+    command: ['postgres', '-c', 'shared_buffers=64MB', '-c', 'work_mem=4MB', '-c', 'maintenance_work_mem=32MB', '-c', 'max_connections=25']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks: [database]
+    mem_limit: 256m
+    cpus: 0.5
+    logging: *logging
+
+  backend:
+    image: ${BACKEND_IMAGE:?Set backend image repository}:${IMAGE_TAG:?Set a commit SHA or explicit local tag}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      POSTGRES_DB: ${POSTGRES_DB:?Set production DB name}
+      APP_DB_USER: ${APP_DB_USER:-partysync_app}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      ACCOUNT_SESSION_TTL: ${ACCOUNT_SESSION_TTL:-P7D}
+      MEMBER_SESSION_TTL: ${MEMBER_SESSION_TTL:-PT12H}
+      AUTH_IP_ATTEMPTS: ${AUTH_IP_ATTEMPTS:-30}
+      AUTH_LOGIN_ATTEMPTS: ${AUTH_LOGIN_ATTEMPTS:-10}
+      AUTH_RATE_WINDOW: ${AUTH_RATE_WINDOW:-PT5M}
+      GROUP_CREATE_ATTEMPTS: ${GROUP_CREATE_ATTEMPTS:-10}
+      GROUP_JOIN_ATTEMPTS: ${GROUP_JOIN_ATTEMPTS:-30}
+      GROUP_RATE_WINDOW: ${GROUP_RATE_WINDOW:-PT1M}
+      TRUSTED_PROXY_REGEX: ${TRUSTED_PROXY_REGEX:-172[.]30[.]77[.]2}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--XX:InitialRAMPercentage=15 -XX:MaxRAMPercentage=55 -XX:MaxMetaspaceSize=192m -XX:ReservedCodeCacheSize=64m -XX:+ExitOnOutOfMemoryError -Duser.timezone=Asia/Seoul}
+    secrets: [DB_PASSWORD]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs: ['/tmp:size=64m,mode=1777']
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    stop_grace_period: 40s
+    networks:
+      proxy:
+        ipv4_address: ${BACKEND_PROXY_IP:-172.30.77.3}
+      database: {}
+    mem_limit: 768m
+    cpus: 1.0
+    logging: *logging
+
+  reverse-proxy:
+    image: ${FRONTEND_IMAGE:?Set frontend image repository}:${IMAGE_TAG:?Set image tag}
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?Set the real public hostname}
+      ACME_EMAIL: ${ACME_EMAIL:?Set certificate contact email}
+      HSTS_ENABLED: ${HSTS_ENABLED:-false}
+    ports:
+      - '${PUBLIC_BIND_IP:-0.0.0.0}:${HTTP_PORT:-80}:80'
+      - '${PUBLIC_BIND_IP:-0.0.0.0}:${HTTPS_PORT:-443}:443'
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+    read_only: true
+    tmpfs: ['/tmp:size=16m,mode=1777']
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ['no-new-privileges:true']
+    networks:
+      edge: {}
+      proxy:
+        ipv4_address: ${PROXY_IP:-172.30.77.2}
+    mem_limit: 128m
+    cpus: 0.5
+    logging: *logging
+
+networks:
+  edge: {}
+  proxy:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${PROXY_SUBNET:-172.30.77.0/28}
+  database:
+    internal: true
+
+volumes:
+  postgres_data: {}
+  caddy_data: {}
+  caddy_config: {}
+
+secrets:
+  postgres_admin_password:
+    file: ${POSTGRES_ADMIN_PASSWORD_FILE:?Set admin password file path}
+  DB_PASSWORD:
+    file: ${APP_DB_PASSWORD_FILE:?Set application DB password file path}

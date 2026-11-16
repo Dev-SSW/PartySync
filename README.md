@@ -4,7 +4,7 @@ RPG 그룹이 함께할 시간을 찾는 웹서비스다. 회원가입 없이 �
 
 ## 기술 스택
 
-Java 21, Spring Boot 4.1.2, Gradle 9.8.2, Spring Web MVC, Spring Data JPA, Validation, Security, PostgreSQL 17, Flyway, Lombok, JUnit 5.
+Java 21, Spring Boot 4.1.2, Gradle 9.8.2, Spring Web MVC, Spring Data JPA, Validation, Security, Actuator(health만), PostgreSQL 17, Flyway, Lombok, JUnit 5.
 
 프론트엔드는 Node.js 24 이상, React 19, TypeScript 6, Vite 8, React Router 7, Tailwind CSS 4, TanStack Query 5, Lucide React, Vitest, React Testing Library를 사용한다. 설치 버전은 `frontend/package-lock.json`으로 고정한다.
 
@@ -18,9 +18,11 @@ Java 21, Spring Boot 4.1.2, Gradle 9.8.2, Spring Web MVC, Spring Data JPA, Valid
 - 본인의 주간 반복 일정을 전체 교체하고 날짜별 예외 시간을 등록·수정·삭제한다.
 - 그룹 멤버별 최종 가능 시간과 시간대별 참여 인원·전원 가능 시간을 조회한다. 예외는 반복 일정을 완전히 대체하며 빈 예외는 하루 전체 불가능이다.
 - 일정 입력은 30분 단위이며 기간 조회는 양 끝을 포함해 최대 31일이다. 겹침은 거절하고 인접 구간은 병합한다.
-- 카테고리·게시글은 엔티티와 Repository까지 구현되어 있으며 해당 API는 아직 제공하지 않는다.
+- 게임 카테고리와 텍스트 공략 게시판을 제공한다. OWNER는 카테고리를 관리하고 멤버는 게시글을 작성한다. 작성자만 수정하며 작성자 또는 OWNER가 삭제한다.
+- 게시판은 카테고리 필터·페이지네이션·안전한 외부 링크를 지원하며 대시보드 오른쪽에서 최신 글 5개를 확인한다.
+- 선택적으로 아이디·비밀번호 계정을 만들고 비회원 멤버를 연결한다. 로그인 후 여러 그룹에 기존 멤버 ID로 재입장할 수 있으며 기기별 계정·그룹 세션의 만료와 서버 로그아웃을 지원한다. JWT는 사용하지 않는다.
 - 랜딩, 그룹 생성·초대 가입, 대시보드, 주간 일정 편집과 날짜별 예외 편집 웹 화면을 제공한다.
-- 토큰 만료·재발급·폐기, 그룹 삭제·추방·권한 위임은 제공하지 않는다.
+- 비밀번호 찾기·이메일 인증·OAuth2, 그룹 삭제·추방·권한 위임은 제공하지 않는다. 복구 수단이 없으므로 로그인 정보는 안전하게 보관해야 한다.
 
 ## 프로젝트 구조
 
@@ -28,14 +30,15 @@ Java 21, Spring Boot 4.1.2, Gradle 9.8.2, Spring Web MVC, Spring Data JPA, Valid
 src/main/java/github/partysync/
   group/          그룹 API·요청/응답·트랜잭션
   groupmember/    멤버 정보·권한·Bearer 인증
+  account/        계정·BCrypt 로그인·세션 발급/폐기·비회원 연결
   availability/   일정 API·저장·예외 적용·공통 시간 계산
-  category/       그룹별 카테고리 모델
-  post/           게시글 모델
+  category/       그룹별 카테고리 API·OWNER 관리
+  post/           게시글 CRUD·권한·페이지 조회
   common/         감사 시간·오류 처리·입력 검증
   config/         JPA Auditing·Spring Security 설정
 src/main/resources/
   application.yaml
-  db/migration/   Flyway V1·V2
+  db/migration/   Flyway V1·V2·V3
 src/test/
   java/           API·Repository 통합 테스트와 단위 테스트
   resources/
@@ -151,17 +154,26 @@ DB 없이 단위 테스트만 실행할 수도 있다.
 
 ## 인증과 보안
 
-생성·참여 응답의 memberAccessToken은 최초 한 번 전달되며 이후 요청의 Authorization: Bearer 헤더에 사용한다. 일반 조회에는 토큰 원문·해시를 포함하지 않는다. 초대 코드와 멤버 인증 토큰은 별개다.
+생성·참여 응답의 비회원 memberAccessToken은 최초 한 번 전달되며 이후 요청의 Authorization: Bearer 헤더에 사용한다. 계정 세션은 `u_` 접두사, 계정 기반 그룹 세션은 `m_` 접두사를 사용한다. 계정 토큰으로 일정·게시판 API를 직접 호출할 수 없으며 그룹 선택 후 멤버 세션을 발급받는다. 일반 조회에는 토큰 원문·해시를 포함하지 않는다. 초대 코드와 인증 토큰은 별개다.
 
-세션·쿠키 기반 인증을 사용하지 않는 stateless API이며 CSRF는 비활성화되어 있다. CORS는 명시적인 Origin만 허용한다. CORS_ALLOWED_ORIGINS가 비어 있으면 교차 Origin 요청을 허용하지 않는다.
+서버 DB에 Opaque Token 세션을 보관하지만 HTTP 세션·쿠키 인증은 사용하지 않는 stateless API이며 CSRF는 비활성화되어 있다. CORS는 명시적인 Origin만 허용한다. CORS_ALLOWED_ORIGINS가 비어 있으면 교차 Origin 요청을 허용하지 않는다.
 
 운영에서는 HTTPS를 사용하고 인증 헤더 및 토큰이 포함된 응답을 로그에 수집하지 않아야 한다.
 
 프론트엔드는 새로고침 후 접근을 유지하기 위해 그룹별 토큰을 `localStorage`의 전용 모듈에 저장한다. 멤버 ID·역할은 저장값을 신뢰하지 않고 `/api/members/me`로 확인한다. 공개 생성·가입 요청에는 Bearer를 보내지 않으며 인증 실패는 해당 그룹 정보와 캐시만 제거한다. 다른 탭에서 참여 정보가 바뀌어도 반영한다. 초대 코드는 중복 가입 안내를 위해 해시만 저장하며 일반 멤버는 OWNER 초대 조회를 호출하지 않는다.
 
-**장기 Bearer Token의 localStorage 저장은 XSS 발생 시 탈취될 위험이 있다.** 현재 토큰 만료·폐기·복구·재발급은 제공하지 않는다. 기기에서 참여 정보를 삭제해도 서버 토큰이 폐기되는 것은 아니며, 저장소를 지우면 기존 멤버 인증을 복구할 수 없다. 공개 전 HttpOnly/Secure/SameSite 인증 보관 방식, 토큰 만료·교체·폐기, 요청 제한, CSP와 보안 로그 정책을 마련해야 한다. 프론트 라우트 보호는 편의 기능이며 실제 권한은 서버가 검증한다. 초대 링크도 가입 권한을 제공하므로 신뢰하는 사람에게만 공유한다.
+**JavaScript에서 읽을 수 있는 토큰은 XSS 발생 시 탈취될 위험이 있다.** 복구 수단 없는 비회원 토큰만 기존 localStorage에 유지하며, 계정·계정 기반 그룹 세션은 sessionStorage에 분리해 저장한다. 새로고침 시 서버로 인증을 확인하고 계정 전환·만료·로그아웃 때 관련 그룹 캐시를 제거한다. 탭 종료 후에는 다시 로그인해 연결된 그룹으로 입장한다. sessionStorage도 HttpOnly 보관이 아니므로 XSS 방어를 대신하지 않는다.
+
+계정은 로그인 ID(대소문자 구분 없이 영문·숫자·밑줄 4~32자)와 비밀번호(12자 이상, UTF-8 72바이트 이하)를 사용한다. BCrypt 비용 계수는 12다. 계정 연결은 유효한 비회원 토큰으로만 가능하며 이전 토큰 폐기와 새 그룹 세션 발급이 한 트랜잭션이다. 멤버 ID·닉네임·권한·일정·작성글은 유지된다. 연결 실패 시 이전 토큰은 유지되며 생성한 계정으로 로그인해 재시도할 수 있다. 연결 성공 뒤 응답 유실은 로그인한 계정의 그룹 재입장으로 복구한다.
+
+기본 만료는 계정 7일, 그룹 12시간이며 그룹 만료는 계정 만료를 넘지 않는다. `.env.example`의 `ACCOUNT_SESSION_TTL`, `MEMBER_SESSION_TTL`로 조정한다. 계정 로그아웃은 현재 계정 세션 및 하위 그룹 세션만 폐기하고 다른 기기는 유지한다. 그룹 세션만 로그아웃할 수도 있다. 비회원 참여 정보의 브라우저 삭제는 서버 폐기가 아니며 계정에도 연결하지 않고 토큰을 잃으면 복구할 수 없다.
+
+등록·로그인은 단일 서버의 메모리에서 IP별 30회·로그인 ID별 10회를 5분마다 제한한다(성공 요청 포함, 설정 가능). 다중 인스턴스 및 프록시 운영 전에는 신뢰하는 프록시의 주소 정책과 공유된 요청 제한을 별도로 마련해야 한다. HTTPS, CSP, 인증 요청/응답 로그 제외, 비밀번호 복구 정책도 공개 전 점검한다. 세션 테이블은 만료 정리용 인덱스를 제공하지만 자동 정리 스케줄러는 없다. 프론트 라우트 보호는 편의 기능이며 실제 권한은 서버가 검증한다.
 
 ## 문서
 
 - [API 명세](docs/api.md): 요청·응답, 인증·권한, 오류 코드
 - [ERD](docs/erd.md): 테이블·관계·제약조건과 데이터 모델
+- [운영 배포](docs/deployment.md): Docker·Caddy·영구 볼륨·승인 배포·백업/복구·롤백
+
+운영은 `Dockerfile`, `frontend/Dockerfile`, `compose.prod.yaml`을 사용한다. React는 Caddy에서 제공하며 `/api`를 내부 백엔드로 전달한다. 운영 비밀값은 `deploy/.env.prod.example`을 참고해 서버의 별도 환경 파일과 secret 파일에 준비한다. 기존 로컬 PostgreSQL 개발·테스트 환경을 Docker 필수 구성으로 바꾸지 않는다. executable jar의 고정 이름은 `build/libs/app.jar`다. 실제 공개 배포에는 승인된 서버·DNS·비밀값이 필요하며 수동 production gate를 켜기 전까지 서버 배포 워크플로는 실행되지 않는다.

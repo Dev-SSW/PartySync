@@ -22,10 +22,13 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class MemberAuthenticationFilter extends OncePerRequestFilter {
     private final MemberAuthenticationService authentication;
     private final SecurityErrorWriter errors;
+    private final github.partysync.account.AccountService accounts;
 
-    public MemberAuthenticationFilter(MemberAuthenticationService authentication, SecurityErrorWriter errors) {
+    public MemberAuthenticationFilter(MemberAuthenticationService authentication, SecurityErrorWriter errors,
+                                      github.partysync.account.AccountService accounts) {
         this.authentication = authentication;
         this.errors = errors;
+        this.accounts = accounts;
     }
 
     /**
@@ -36,15 +39,19 @@ public class MemberAuthenticationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         List<String> headers = Collections.list(request.getHeaders(HttpHeaders.AUTHORIZATION));
+        // 인증 응답과 비밀값이 포함될 수 있는 모든 API 응답을 캐시하지 않는다.
+        if (request.getRequestURI().startsWith("/api/")) response.setHeader("Cache-Control", "no-store");
         if (!headers.isEmpty()) {
             String header = headers.getFirst();
             if (headers.size() != 1 || header.length() > 128 || !header.regionMatches(true, 0, "Bearer ", 0, 7)) {
                 errors.write(response, 401);
                 return;
             }
-            MemberPrincipal principal;
+            Object principal;
             try {
-                principal = authentication.authenticate(header.substring(7)).orElse(null);
+                String raw = header.substring(7);
+                // 기존 43자 비회원 토큰도 우연히 u_로 시작할 수 있으므로 길이까지 구분한다.
+                principal = raw.length() == 45 && raw.startsWith("u_") ? accounts.authenticate(raw).orElse(null) : authentication.authenticate(raw).orElse(null);
             // DB 장애는 잘못된 토큰(401)과 구분해 서버 오류(500)로 처리
             } catch (DataAccessException unavailable) {
                 errors.write(response, 500);
@@ -57,7 +64,7 @@ public class MemberAuthenticationFilter extends OncePerRequestFilter {
             // DB에서 확인한 역할만 신뢰하며 인증 객체의 credentials에는 토큰 원문을 남기지 않음
             var context = SecurityContextHolder.createEmptyContext();
             context.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(principal, null,
-                    List.of(new SimpleGrantedAuthority("ROLE_" + principal.role().name()))));
+                    List.of(new SimpleGrantedAuthority(principal instanceof MemberPrincipal member ? "ROLE_" + member.role().name() : "ROLE_ACCOUNT"))));
             SecurityContextHolder.setContext(context);
         }
         chain.doFilter(request, response);

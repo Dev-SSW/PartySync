@@ -25,5 +25,12 @@ spring:
       accept-float-as-int: false
 
 app:
+  auth:
+    account-ttl: ${ACCOUNT_SESSION_TTL:P7D}
+    member-ttl: ${MEMBER_SESSION_TTL:PT12H}
+    rate-limit:
+      ip-attempts: ${AUTH_IP_ATTEMPTS:30}
+      login-attempts: ${AUTH_LOGIN_ATTEMPTS:10}
+      window: ${AUTH_RATE_WINDOW:PT5M}
   security:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:}

@@ -1,0 +1,68 @@
+name: Approved production deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Full SHA of a published, verified main commit'
+        required: true
+        type: string
+      confirm:
+        description: 'I approve deployment, have reviewed DB compatibility, and prepared production backups/secrets'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main' && vars.PRODUCTION_DEPLOY_ENABLED == 'true' && inputs.confirm
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify revision belongs to main
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_TAG" =~ ^[a-f0-9]{40}$ ]]
+          git merge-base --is-ancestor "$IMAGE_TAG" HEAD
+      - name: Deploy through a pinned SSH host
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9.-]+$ ]]
+          [[ "$DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "$DEPLOY_PATH" =~ ^/[a-zA-Z0-9/_-]+$ ]]
+          port=${DEPLOY_PORT:-22}
+          [[ "$port" =~ ^[0-9]{1,5}$ ]]
+          test -n "$DEPLOY_SSH_KEY" && test -n "$DEPLOY_KNOWN_HOSTS"
+          key=$(mktemp "$RUNNER_TEMP/partysync-key.XXXXXX")
+          known=$(mktemp "$RUNNER_TEMP/partysync-hosts.XXXXXX")
+          trap 'rm -f -- "$key" "$known"' EXIT
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$known"
+          chmod 600 "$key" "$known"
+          remote=(ssh -i "$key" -p "$port" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$known" "$DEPLOY_USER@$DEPLOY_HOST")
+          "${remote[@]}" "umask 077; mkdir -p '$DEPLOY_PATH/releases/$IMAGE_TAG' '$DEPLOY_PATH/shared/state' '$DEPLOY_PATH/shared/backups'"
+          # Only tracked deployment files from the exact approved SHA are transmitted.
+          git archive --format=tar "$IMAGE_TAG" compose.prod.yaml deploy | "${remote[@]}" "tar -xf - -C '$DEPLOY_PATH/releases/$IMAGE_TAG'"
+          "${remote[@]}" "PARTYSYNC_ENV_FILE='$DEPLOY_PATH/shared/.env.prod' STATE_DIR='$DEPLOY_PATH/shared/state' BACKUP_DIR='$DEPLOY_PATH/shared/backups' bash '$DEPLOY_PATH/releases/$IMAGE_TAG/deploy/deploy.sh' '$IMAGE_TAG'"

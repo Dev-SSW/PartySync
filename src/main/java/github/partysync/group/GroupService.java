@@ -140,7 +140,8 @@ public class GroupService {
      * 그룹이 없으면 404, 다른 그룹 소속이면 403을 반환
      * 토큰 인증은 필터에서 먼저 완료됨
      */
-    private Group requireGroupMember(Long groupId, MemberPrincipal principal) {
+    @Transactional(readOnly = true)
+    public Group requireGroupMember(Long groupId, MemberPrincipal principal) {
         Group group = groups.findById(groupId).orElseThrow(() ->
                 new ApiException(HttpStatus.NOT_FOUND, "GROUP_NOT_FOUND", "그룹을 찾을 수 없습니다."));
         if (!groupId.equals(principal.groupId())) {

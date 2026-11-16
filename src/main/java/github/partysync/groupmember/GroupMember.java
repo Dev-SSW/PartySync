@@ -54,10 +54,20 @@ public class GroupMember {
     @Column(nullable = false, length = 16)
     private GroupRole role;
 
-    @NotBlank
     @Size(max = 255)
-    @Column(name = "access_token_hash", nullable = false, length = 255)
+    @Column(name = "access_token_hash", length = 255)
     private String accessTokenHash;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id")
+    private github.partysync.account.UserAccount user;
+
+    /** 기존 멤버 ID·권한·일정을 유지하며 비회원 인증을 계정 인증으로 전환한다. */
+    public void claim(github.partysync.account.UserAccount account) {
+        if (user != null) throw new IllegalStateException("Membership already linked");
+        user = java.util.Objects.requireNonNull(account);
+        accessTokenHash = null;
+    }
 
     @CreatedDate
     @Column(name = "joined_at", nullable = false, updatable = false)
