@@ -50,4 +50,10 @@ public class GameCategory extends CreatedEntity {
         this.name = name;
         this.description = description;
     }
+
+    /** 소속 그룹과 생성 시각을 유지하며 표시 정보를 수정한다. */
+    public void update(String name, String description) {
+        this.name = name;
+        this.description = description;
+    }
 }

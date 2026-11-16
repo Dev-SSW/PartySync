@@ -59,4 +59,11 @@ public class Post extends TimestampedEntity {
         this.title = title;
         this.content = content;
     }
+
+    /** 작성자·그룹·생성 시각을 유지하며 본문과 분류를 수정한다. */
+    public void update(GameCategory category, String title, String content) {
+        this.gameCategory = java.util.Objects.requireNonNull(category);
+        this.title = title;
+        this.content = content;
+    }
 }
