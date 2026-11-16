@@ -40,6 +40,12 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     ResponseEntity<ApiError> handleIntegrity(DataIntegrityViolationException exception) {
+        if (DatabaseConstraints.isViolation(exception, "uk_user_login_id")) {
+            return error(HttpStatus.CONFLICT, "LOGIN_ID_CONFLICT", "이미 사용 중인 로그인 ID입니다.");
+        }
+        if (DatabaseConstraints.isViolation(exception, "uk_member_user_group")) {
+            return error(HttpStatus.CONFLICT, "MEMBERSHIP_CONFLICT", "이 계정은 이미 해당 그룹에 연결되어 있습니다.");
+        }
         if (DatabaseConstraints.isViolation(exception, "uk_category_group_name")) {
             return error(HttpStatus.CONFLICT, "CATEGORY_NAME_CONFLICT", "이미 사용 중인 카테고리 이름입니다.");
         }

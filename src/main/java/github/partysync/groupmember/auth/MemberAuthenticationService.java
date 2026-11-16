@@ -14,10 +14,15 @@ import org.springframework.transaction.annotation.Transactional;
 public class MemberAuthenticationService {
     private final MemberTokenService tokens;
     private final GroupMemberRepository members;
+    private final github.partysync.account.MemberSessionRepository sessions;
+    private final java.time.Clock clock;
 
-    public MemberAuthenticationService(MemberTokenService tokens, GroupMemberRepository members) {
+    public MemberAuthenticationService(MemberTokenService tokens, GroupMemberRepository members,
+                                       github.partysync.account.MemberSessionRepository sessions, java.time.Clock clock) {
         this.tokens = tokens;
         this.members = members;
+        this.sessions = sessions;
+        this.clock = clock;
     }
 
     /**
@@ -25,6 +30,9 @@ public class MemberAuthenticationService {
      */
     @Transactional(readOnly = true)
     public Optional<MemberPrincipal> authenticate(String raw) {
+        if (raw != null && raw.startsWith("m_") && tokens.hasValidFormat(raw.substring(2))) {
+            return sessions.authenticate(tokens.hash(raw), clock.instant());
+        }
         if (!tokens.hasValidFormat(raw)) {
             return Optional.empty();
         }

@@ -57,6 +57,7 @@ class GroupApiControllerTest {
     @Autowired MockMvc mvc;
     @MockitoBean GroupService groups;
     @MockitoBean MemberAuthenticationService memberAuthentication;
+    @MockitoBean github.partysync.account.AccountService accountAuthentication;
 
     @Test
     @DisplayName("인증 없이 그룹을 생성하면 201·Location·캐시 금지와 생성 응답을 반환한다")

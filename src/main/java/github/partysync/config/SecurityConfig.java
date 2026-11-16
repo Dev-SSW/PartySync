@@ -39,6 +39,7 @@ public class SecurityConfig {
             HttpSecurity http,
             MemberAuthenticationService authentication,
             SecurityErrorWriter errors,
+            github.partysync.account.AccountService accounts,
             @Qualifier("corsConfigurationSource") CorsConfigurationSource corsSource
     ) throws Exception {
         CorsFilter corsFilter = new CorsFilter(corsSource);
@@ -60,10 +61,12 @@ public class SecurityConfig {
                         .accessDeniedHandler((request, response, exception) -> errors.write(response, 403)))
                 .authorizeHttpRequests(requests -> requests
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
-                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/groups", "/api/groups/join").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/groups", "/api/groups/join", "/api/auth/register", "/api/auth/login").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/actuator/health").permitAll()
+                        .requestMatchers("/api/account/**", "/api/auth/logout").hasRole("ACCOUNT")
+                        .requestMatchers("/api/groups/**", "/api/members/**").hasAnyRole("OWNER", "MEMBER")
                         .anyRequest().authenticated())
-                .addFilterBefore(new MemberAuthenticationFilter(authentication, errors),
+                .addFilterBefore(new MemberAuthenticationFilter(authentication, errors, accounts),
                         UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(corsFilter, MemberAuthenticationFilter.class)
                 .build();
