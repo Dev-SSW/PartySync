@@ -3,7 +3,7 @@ name: PartySync CI
 on:
   pull_request:
   push:
-    branches: [develop]
+    branches: [develop, main]
 
 permissions:
   contents: read
@@ -63,3 +63,16 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+
+  deployment-config:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Isolated production image, routing, persistence and restore checks
+        run: node deploy/smoke.mjs
