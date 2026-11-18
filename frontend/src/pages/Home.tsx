@@ -1,8 +1,7 @@
 import { ArrowRight, CalendarDays, Link2, UsersRound, Sparkles, Check } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { useAuth } from '../features/member/Auth'
+import { HomeParties } from '../features/party/HomeParties'
 export function Home() {
-  const { sessions } = useAuth()
   return (
     <div className="home">
       <section className="hero">
@@ -81,23 +80,7 @@ export function Home() {
           </article>
         ))}
       </section>
-      {sessions.length > 0 && (
-        <section className="saved-parties">
-          <div className="section-head">
-            <h2>이 브라우저의 파티</h2>
-            <span className="muted small-text">저장된 참여 정보</span>
-          </div>
-          <div className="party-links">
-            {sessions.map((s) => (
-              <Link key={s.groupId} to={`/groups/${s.groupId}`} className="card party-link">
-                <UsersRound size={20} />
-                <span>{s.name}</span>
-                <ArrowRight size={18} />
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
+      <HomeParties />
     </div>
   )
 }

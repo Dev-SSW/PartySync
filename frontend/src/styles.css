@@ -379,6 +379,15 @@ nav,
 .party-link > span {
   flex: 1;
 }
+.home-party { flex: 1 1 300px; min-width: 0; max-width: 100%; padding: 18px; }
+.home-party-heading { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.home-party-heading h3 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+.home-party > p { margin: 12px 0; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.home-party .actions > button { min-height: 44px; white-space: normal; }
+.home-party-hint { margin-top: 14px; line-height: 1.7; }
+@media (max-width: 480px) {
+  .saved-parties > .section-head { align-items: flex-start; flex-direction: column; gap: 6px; }
+}
 .footer {
   padding: 24px 0;
   border-top: 1px solid #272a38;
