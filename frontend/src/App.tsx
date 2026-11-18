@@ -8,6 +8,7 @@ import { Weekly } from './pages/Weekly'
 import { PostList, PostDetail, PostEditor } from './pages/Posts'
 import { Categories } from './pages/Categories'
 import { AccountForm, AccountPage } from './pages/Account'
+import { Launch } from './pages/Launch'
 
 export const routes: RouteObject[] = [
   {
@@ -23,6 +24,7 @@ export const routes: RouteObject[] = [
     ),
     children: [
       { path: '/', element: <Home /> },
+      { path: '/launch', element: <Launch /> },
       { path: '/login', element: <AccountForm key="login" /> },
       { path: '/register', element: <AccountForm key="register" registering /> },
       { path: '/account', element: <AccountPage /> },

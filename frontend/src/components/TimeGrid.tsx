@@ -1,5 +1,6 @@
-import { Fragment, useEffect, useState, type ReactNode } from 'react'
+import { Fragment, useState, type ReactNode } from 'react'
 import { time } from '../utils/schedule'
+import { useMobile } from '../hooks/useMobile'
 
 export interface TimeColumn {
   id: string
@@ -21,16 +22,7 @@ export function TimeGrid({
 }) {
   const [expanded, setExpanded] = useState(false)
   const [selected, setSelected] = useState(0)
-  const [mobile, setMobile] = useState(
-    () => window.matchMedia?.('(max-width: 760px)').matches ?? false,
-  )
-  useEffect(() => {
-    const query = window.matchMedia?.('(max-width: 760px)')
-    if (!query) return
-    const change = () => setMobile(query.matches)
-    query.addEventListener('change', change)
-    return () => query.removeEventListener('change', change)
-  }, [])
+  const mobile = useMobile()
   const visible = columns
     .map((column, index) => ({ column, index }))
     .filter(({ index }) => !mobile || index === Math.min(selected, columns.length - 1))

@@ -5,7 +5,7 @@ import { InstallHint } from '../components/InstallHint'
 
 it('Manifest과 PNG 아이콘 크기가 설치 요구사항과 일치한다', () => {
   const manifest = JSON.parse(readFileSync(resolve('public/manifest.webmanifest'), 'utf8'))
-  expect(manifest).toMatchObject({ name: 'PartySync', short_name: 'PartySync', display: 'standalone', start_url: '/', scope: '/' })
+  expect(manifest).toMatchObject({ id: '/', name: 'PartySync', short_name: 'PartySync', display: 'standalone', start_url: '/launch', scope: '/' })
   for (const icon of manifest.icons) {
     const png = readFileSync(resolve(`public${icon.src}`))
     expect(`${png.readUInt32BE(16)}x${png.readUInt32BE(20)}`).toBe(icon.sizes)

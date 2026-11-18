@@ -379,6 +379,15 @@ nav,
 .party-link > span {
   flex: 1;
 }
+.home-party { flex: 1 1 300px; min-width: 0; max-width: 100%; padding: 18px; }
+.home-party-heading { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.home-party-heading h3 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+.home-party > p { margin: 12px 0; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.home-party .actions > button { min-height: 44px; white-space: normal; }
+.home-party-hint { margin-top: 14px; line-height: 1.7; }
+@media (max-width: 480px) {
+  .saved-parties > .section-head { align-items: flex-start; flex-direction: column; gap: 6px; }
+}
 .footer {
   padding: 24px 0;
   border-top: 1px solid #272a38;
@@ -1907,3 +1916,51 @@ textarea {
 @media (max-width: 600px) { .account-groups li { flex-wrap: wrap; } .account-groups .actions { flex-wrap: wrap; } }
 label.remember-login { display: flex; align-items: center; gap: 0.6rem; }
 label.remember-login input { width: 1rem; height: 1rem; }
+
+/* 모바일은 주간 요약에서 날짜를 고르고 필요한 시간 구간만 펼친다. */
+.mobile-week-summary, .recommended-times, .mobile-day-schedule { min-width: 0; }
+.recommended-times h3, .mobile-day-heading h3 { font-size: 15px; margin: 0 0 10px; }
+.mobile-week-summary { padding: 10px 8px; border-bottom: 1px solid #353a4b; }
+.recommended-times { padding: 12px; border-top: 1px solid #353a4b; }
+.mobile-week-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+.mobile-week-days button { min-width: 0; min-height: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 8px 1px; border: 1px solid #41465b; border-radius: 7px; background: #232737; color: #b8bfd0; font-size: 13px; line-height: 1.2; }
+.mobile-week-days button strong { font-size: 14px; }
+.mobile-week-days .some { background: #30283f; color: #ded0f6; }
+.mobile-week-days .all { background: #49355f; color: #f0e4ff; }
+.mobile-week-days button[aria-pressed='true'] { border-color: #c5a5ff; box-shadow: inset 0 0 0 1px #c5a5ff; }
+.day-peak { font-size: 12px; font-variant-numeric: tabular-nums; }
+.recommended-times ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+.recommended-times button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 44px; padding: 9px 10px; border: 1px solid #454055; border-radius: 7px; background: #252333; text-align: left; font-size: 13px; }
+.recommended-times button > span:first-child { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
+.recommended-times button > span:last-child { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.recommended-times button strong { font-size: 13px; }
+.recommendation-all { color: #d9baff; }
+.mobile-day-schedule { padding: 12px; }
+.mobile-day-heading p { font-size: 13px; line-height: 1.7; margin: 4px 0; }
+.mobile-day-hours.time-grid { display: block; }
+.mobile-period { margin: 10px 0; border: 1px solid #3a4053; border-radius: 8px; overflow: hidden; }
+.mobile-period-toggle { width: 100%; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px; background: #282b3b; border: 0; text-align: left; font-size: 14px; }
+.mobile-period-toggle small { font-size: 12px; color: #b1b8cf; }
+.mobile-hour-row { display: grid; grid-template-columns: 56px minmax(0, 1fr); scroll-margin-block: 24px; }
+.mobile-hour-row:focus { outline: 2px solid #c5a5ff; outline-offset: -2px; }
+.mobile-day-hours.time-grid .hour-cell .calendar-cell { min-height: 44px; height: auto; padding: 10px 12px; justify-content: flex-start; font-size: 14px; gap: 10px; color: #d4c9e5; background: linear-gradient(90deg, #65507e var(--participation), #202431 var(--participation)); }
+.mobile-day-hours.time-grid .hour-cell .calendar-cell.all { background: #c5a5ef; color: #251832; }
+.mobile-day-hours .grid-time { font-size: 13px; }
+.mobile-day-schedule > .button { min-height: 46px; margin-top: 12px; white-space: normal; }
+.mobile-week-days button:focus-visible, .recommended-times button:focus-visible, .mobile-period-toggle:focus-visible { outline: 2px solid #d5bdff; outline-offset: 2px; }
+@media (max-width: 760px) {
+  .mobile-day-schedule .editing-toolbar { padding: 12px 0; margin: 0; }
+  .mobile-day-schedule .segmented { width: 100%; }
+  .mobile-day-schedule .segmented button { flex: 1; min-height: 46px; }
+  .mobile-day-schedule .editing-toolbar label { flex-wrap: wrap; width: 100%; }
+  .mobile-day-schedule .editing-toolbar select { min-height: 44px; max-width: 100%; }
+  .mobile-day-schedule .autosave-status { margin-left: 0; width: 100%; }
+  .mobile-day-schedule .calendar-toolbar { padding: 10px 0; flex-wrap: wrap; }
+  .mobile-day-schedule .view-label { flex-wrap: wrap; }
+  .mobile-day-schedule .view-label select { max-width: 100%; min-height: 44px; }
+}
+@media (max-width: 360px) {
+  .app-header .header-inner { height: auto; flex-wrap: wrap; padding-block: 10px; row-gap: 10px; }
+  .app-header nav { width: 100%; justify-content: flex-end; }
+  .app-header nav .button { white-space: nowrap; }
+}

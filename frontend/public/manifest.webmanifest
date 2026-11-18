@@ -3,7 +3,7 @@
   "name": "PartySync",
   "short_name": "PartySync",
   "lang": "ko",
-  "start_url": "/",
+  "start_url": "/launch",
   "scope": "/",
   "display": "standalone",
   "background_color": "#11131b",

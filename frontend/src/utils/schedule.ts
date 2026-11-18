@@ -1,4 +1,4 @@
-import { DAYS, type CountedSlot, type Slot, type WeeklySlot } from '../types/api'
+import { DAYS, type CommonAvailability, type CountedSlot, type Slot, type WeeklySlot } from '../types/api'
 
 export const DAY_LABELS = ['월', '화', '수', '목', '금', '토', '일']
 export const time = (minute: number) =>
@@ -22,6 +22,8 @@ export function monday(date: string): string {
   return addDays(date, -((day + 6) % 7))
 }
 export const weekDates = (start: string) => Array.from({ length: 7 }, (_, i) => addDays(start, i))
+/** API 배열 순서 대신 날짜에서 월요일 기준 요일을 구한다. */
+export const weekdayIndex = (date: string) => (new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7
 export const emptyCells = () => Array<boolean>(48).fill(false)
 export function hourState(cells: boolean[], hour: number): 'full' | 'partial' | 'none' {
   const left = !!cells[hour * 2],
@@ -78,3 +80,24 @@ export const expandCommon = (slots: CountedSlot[]) =>
   Array.from({ length: 48 }, (_, i) =>
     slots.find((s) => s.startMinute <= i * 30 && s.endMinute >= (i + 1) * 30),
   )
+
+/** PC·모바일이 공유하는 1시간 집계를 날짜별로 한 번만 계산한다. */
+export function summarizeWeek(common: CommonAvailability) {
+  return [...new Map(common.days.map(day => [day.date, day])).values()]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map(day => {
+      const slots = expandCommon(day.timeSlots)
+      const hours = Array.from({ length: 24 }, (_, hour) => summarizeHour(slots, hour, day.totalMembers))
+      return { ...day, slots, hours, peak: Math.max(0, ...hours.map(hour => hour.count)),
+        hasAll: hours.some(hour => hour.all), hasPartial: hours.some(hour => hour.partialIds.length > 0) }
+    })
+}
+export type ScheduleDay = ReturnType<typeof summarizeWeek>[number]
+export interface RecommendedTime { date: string; hour: number; count: number; total: number; all: boolean }
+/** 부분 가능은 전체 인원에 넣지 않으며 날짜·시간별 추천은 하나만 제공한다. */
+export function recommendTimes(days: ScheduleDay[]): RecommendedTime[] {
+  return days.flatMap(day => day.hours.flatMap((summary, hour) => summary.count > 0
+    ? [{ date: day.date, hour, count: summary.count, total: day.totalMembers, all: summary.all }] : []))
+    .sort((a, b) => b.count - a.count || Number(b.all) - Number(a.all)
+      || a.date.localeCompare(b.date) || a.hour - b.hour).slice(0, 3)
+}

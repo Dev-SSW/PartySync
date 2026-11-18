@@ -12,7 +12,8 @@ function setup({
   fail = false,
   mobile = false,
   override,
-}: { fail?: boolean; mobile?: boolean; override?: Slot[] } = {}) {
+  shuffled = false,
+}: { fail?: boolean; mobile?: boolean; override?: Slot[]; shuffled?: boolean } = {}) {
   if (mobile)
     vi.stubGlobal('matchMedia', () => ({
       matches: true,
@@ -76,7 +77,7 @@ function setup({
     if (url.includes('/common-availability?'))
       return json({
         groupId: 1,
-        days: days.map((day) => ({
+        days: (shuffled ? [...days].reverse() : days).map((day) => ({
           date: day.date,
           totalMembers: 2,
           timeSlots: Array.from({ length: 48 }, (_, row) => {
@@ -91,7 +92,7 @@ function setup({
           }),
         })),
       })
-    if (url.includes('/availability?')) return json({ groupId: 1, days })
+    if (url.includes('/availability?')) return json({ groupId: 1, days: shuffled ? [...days].reverse() : days })
     return json({
       groupId: 1,
       name: '편집 테스트 파티',
@@ -179,13 +180,17 @@ describe('캘린더 조회와 본인 식별', () => {
     expect(button).not.toHaveTextContent('✓')
     expect(screen.getByText('내 예외 적용')).toBeInTheDocument()
   })
-  it('모바일은 하루만 표시하고 요일 탭으로 전환한다', async () => {
+  it('모바일은 오늘 하루를 표시하고 주간 요약에서 날짜를 전환한다', async () => {
     const { dates } = setup({ mobile: true })
-    await screen.findByRole('region', { name: '주간 가능 시간표' })
-    expect(screen.getAllByRole('button', { name: new RegExp(`${dates[0]} 19:00`) })).toHaveLength(1)
-    expect(screen.queryByRole('button', { name: new RegExp(`${dates[1]} 19:00`) })).toBeNull()
+    await screen.findByRole('region', { name: `${seoulToday()} 하루 시간표` })
+    const recommendations = screen.getByRole('region', { name: '이번 주 모이기 좋은 시간' })
+    const detail = screen.getByRole('region', { name: '하루 상세 일정' })
+    const latest = screen.getByRole('heading', { name: '최신 게시글' }).closest('section')!
+    expect(detail.compareDocumentPosition(recommendations) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(recommendations.compareDocumentPosition(latest) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: new RegExp(`${seoulToday()} 19:00`) })).toHaveLength(1)
     await userEvent.click(
-      within(screen.getByRole('group', { name: '표시 요일' })).getByRole('button', { name: /^화/ }),
+      within(screen.getByRole('group', { name: '표시 날짜' })).getByRole('button', { name: new RegExp(dates[1]) }),
     )
     expect(
       screen.getByRole('button', { name: new RegExp(`${dates[1]} 19:00`) }),
@@ -193,6 +198,46 @@ describe('캘린더 조회와 본인 식별', () => {
   })
 })
 describe('메인 화면 자동 저장', () => {
+  it('모바일은 저장 실패와 날짜 전환 후에도 초안과 기존 30분 일정을 보존한다', async () => {
+    const { dates, writes } = setup({ mobile: true, fail: true, override: [
+      { startMinute: 210, endMinute: 240 }, { startMinute: 1140, endMinute: 1170 },
+    ] })
+    const summary = await screen.findByRole('group', { name: '표시 날짜' })
+    await userEvent.click(within(summary).getByRole('button', { name: new RegExp(dates[0]) }))
+    await userEvent.click(screen.getByRole('button', { name: '내 일정 수정' }))
+    await screen.findByRole('checkbox', { name: new RegExp(`${dates[0]} 20:00`) })
+    await userEvent.click(cell(dates[0], '20:00'))
+    expect(cell(dates[0], '20:00')).toHaveAttribute('aria-checked', 'true')
+    await userEvent.click(within(summary).getByRole('button', { name: new RegExp(dates[1]) }))
+    await screen.findByRole('alert')
+    expect(screen.getByRole('button', { name: '다음 주' })).toBeDisabled()
+    await userEvent.click(within(summary).getByRole('button', { name: new RegExp(dates[0]) }))
+    expect(cell(dates[0], '20:00')).toHaveAttribute('aria-checked', 'true')
+    expect(cell(dates[0], '19:00')).toHaveAttribute('aria-checked', 'mixed')
+    await userEvent.click(screen.getByRole('button', { name: '다시 시도' }))
+    await screen.findByText('저장 완료')
+    expect(writes()).toHaveLength(2)
+    expect(JSON.parse(writes()[1][1].body).slots).toEqual([
+      { startMinute: 210, endMinute: 240 }, { startMinute: 1140, endMinute: 1170 },
+      { startMinute: 1200, endMinute: 1260 },
+    ])
+  })
+  it('모바일 반복 편집은 API 배열 순서와 무관하게 선택 날짜의 요일을 저장한다', async () => {
+    const { dates, writes } = setup({ mobile: true, shuffled: true })
+    const summary = await screen.findByRole('group', { name: '표시 날짜' })
+    await userEvent.click(within(summary).getByRole('button', { name: new RegExp(dates[1]) }))
+    await userEvent.click(screen.getByRole('button', { name: '내 일정 수정' }))
+    await screen.findByRole('checkbox', { name: new RegExp(`${dates[1]} 20:00`) })
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: '수정 범위' }), 'weekly')
+    expect(cell(dates[1], '20:00')).toHaveAttribute('aria-checked', 'true')
+    await userEvent.click(cell(dates[1], '21:00'))
+    await screen.findByText('저장 완료')
+    expect(JSON.parse(writes()[0][1].body).slots).toEqual(expect.arrayContaining([
+      { dayOfWeek: 'TUESDAY', startMinute: 1200, endMinute: 1320 },
+      { dayOfWeek: 'MONDAY', startMinute: 0, endMinute: 60 },
+      { dayOfWeek: 'MONDAY', startMinute: 1140, endMinute: 1200 },
+    ]))
+  })
   it('부분 가능 시간을 수정하면 한 시간 전체로 바꾸고 다른 기존 30분 구간은 유지한다', async () => {
     const { dates, writes } = setup({
       override: [

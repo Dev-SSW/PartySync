@@ -11,6 +11,7 @@ import {
   slotsToCells,
   setHour,
   weeklyToCells,
+  weekdayIndex,
 } from '../../utils/schedule'
 import { Calendar, type CalendarProps } from './Calendar'
 import { SaveQueue } from './SaveQueue'
@@ -123,7 +124,7 @@ export function AvailabilityWorkspace({
     return draft?.kind === 'weekly' ? draft.cells : weeklyToCells(weekly.data?.slots || [])
   }
   const editReady = mode === 'edit' && !!weekly.data
-  return (
+  const controls = (
     <>
       <div className="editing-toolbar">
         <div className="segmented" role="group" aria-label="캘린더 모드">
@@ -188,41 +189,44 @@ export function AvailabilityWorkspace({
       {mode === 'edit' && weekly.error && (
         <Feedback error={weekly.error} retry={() => void weekly.refetch()} />
       )}
-      {mode === 'edit' && weekly.isPending ? (
-        <Loading />
-      ) : (
-        <Calendar
-          {...props}
-          onEdit={(date) => {
-            void queue.flush().then((ok) => {
-              if (ok) props.onEdit(date)
-            })
-          }}
-          editing={
-            editReady
-              ? {
-                  scope,
-                  start: () => queue.pause(),
-                  end: () => queue.resume(),
-                  cells: (date, col) => (scope === 'date' ? dateCells(date) : weeklyCells()[col]),
-                  set: (date, col, row, selected) => {
-                    if (scope === 'date') {
-                      queue.seed(date, { kind: 'date', date, cells: dateCells(date) })
-                      const cells = setHour(dateCells(date), row, selected)
-                      enqueue(date, { kind: 'date', date, cells })
-                    } else {
-                      queue.seed('weekly', { kind: 'weekly', cells: weeklyCells() })
-                      const cells = weeklyCells().map((day, index) =>
-                        index === col ? setHour(day, row, selected) : day,
-                      )
-                      enqueue('weekly', { kind: 'weekly', cells })
-                    }
-                  },
-                }
-              : undefined
-          }
-        />
-      )}
+      {mode === 'edit' && weekly.isPending && <Loading />}
+    </>
+  )
+  return (
+    <>
+      <Calendar
+        controls={controls}
+        loading={mode === 'edit' && weekly.isPending}
+        {...props}
+        onEdit={(date) => {
+          void queue.flush().then((ok) => {
+            if (ok) props.onEdit(date)
+          })
+        }}
+        editing={
+          editReady
+            ? {
+                scope,
+                start: () => queue.pause(),
+                end: () => queue.resume(),
+                cells: (date) => (scope === 'date' ? dateCells(date) : weeklyCells()[weekdayIndex(date)]),
+                set: (date, _col, row, selected) => {
+                  if (scope === 'date') {
+                    queue.seed(date, { kind: 'date', date, cells: dateCells(date) })
+                    const cells = setHour(dateCells(date), row, selected)
+                    enqueue(date, { kind: 'date', date, cells })
+                  } else {
+                    queue.seed('weekly', { kind: 'weekly', cells: weeklyCells() })
+                    const cells = weeklyCells().map((day, index) =>
+                      index === weekdayIndex(date) ? setHour(day, row, selected) : day,
+                    )
+                    enqueue('weekly', { kind: 'weekly', cells })
+                  }
+                },
+              }
+            : undefined
+        }
+      />
       {editReady && scope === 'date' && (
         <div className="restore-days">
           <span className="small-text muted">날짜별 예외 삭제:</span>
@@ -235,11 +239,10 @@ export function AvailabilityWorkspace({
                 className="button small"
                 key={day.date}
                 onClick={() => {
-                  const col = props.common.days.findIndex((d) => d.date === day.date)
-                  enqueue(day.date, { kind: 'restore', date: day.date, cells: weeklyCells()[col] })
+                  enqueue(day.date, { kind: 'restore', date: day.date, cells: weeklyCells()[weekdayIndex(day.date)] })
                 }}
               >
-                {DAY_LABELS[props.common.days.findIndex((d) => d.date === day.date)]}{' '}
+                {DAY_LABELS[weekdayIndex(day.date)]}{' '}
                 {day.date.slice(5)} 반복 일정으로 복원
               </button>
             ))}
