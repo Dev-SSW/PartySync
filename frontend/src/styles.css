@@ -385,6 +385,9 @@ nav,
 .home-party > p { margin: 12px 0; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
 .home-party .actions > button { min-height: 44px; white-space: normal; }
 .home-party-hint { margin-top: 14px; line-height: 1.7; }
+.install-hint { margin-top: 10px; }
+.install-guide > summary { display: inline-flex; width: fit-content; cursor: pointer; min-height: 40px; }
+.install-guide > p { margin-top: 8px; line-height: 1.7; max-width: 600px; }
 @media (max-width: 480px) {
   .saved-parties > .section-head { align-items: flex-start; flex-direction: column; gap: 6px; }
 }
