@@ -16,7 +16,7 @@ Authorization: Bearer <memberAccessToken>
 
 비회원 토큰은 32바이트 난수(256비트)를 Base64 URL-safe, padding 없이 인코딩한 43자 문자열이다. 계정·계정 기반 그룹 토큰은 이 난수에 각각 u_·m_ 접두사를 붙인 45자 문자열이다. 서버에는 전체 토큰의 SHA-256 해시(64자 소문자 hex)만 저장한다. 기존 비회원 토큰도 우연히 접두사와 같은 문자로 시작할 수 있어 형식과 길이를 함께 구분한다. 초대 코드는 별도로 생성되며 멤버 인증으로 사용할 수 없다. 사용자 식별은 토큰으로만 수행한다. 쿼리의 memberId/groupMemberId나 클라이언트가 보낸 role을 신뢰하지 않는다.
 
-- HTTP 세션·쿠키·HTTP Basic·폼 로그인은 인증 수단으로 사용하지 않는다. DB에 보관한 Opaque Token 세션을 Authorization으로 검증하며 요청 처리는 stateless다.
+- API는 DB의 Opaque Bearer 세션을 Authorization으로 검증한다. 로그인 복원에만 HttpOnly 쿠키를 사용하며 HTTP 세션·HTTP Basic·폼 로그인은 사용하지 않는다. [로그인 복원과 강퇴 정책](pwa-and-sessions.md)을 참고한다.
 - Authorization은 단일 헤더로 전달한다. 형식 오류·중복 헤더·유효하지 않은 토큰은 401이다. 공개 API라도 잘못된 Authorization을 첨부하면 401이므로 생성/참여에는 기존 토큰을 생략하는 것을 권장한다.
 - 토큰을 URL·서버 로그·분석 도구·콘솔 로그에 넣지 않는다. 생성/참여 응답은 Cache-Control: no-store다. 다른 응답에는 토큰과 해시가 없다.
 - 기존 비회원 토큰은 계정 연결 전까지 유지된다. 연결 후 과거 토큰은 즉시 폐기하고 만료·폐기 가능한 그룹 세션으로 전환한다. 계정 로그인 후 새 그룹 세션을 발급받을 수 있다. 비회원 토큰을 분실했고 계정에도 연결하지 않았다면 복구할 수 없다.
@@ -519,13 +519,26 @@ JWT나 쿠키를 사용하지 않는다. 비회원 토큰은 기존 43자 형식
 
 ### 만료·로그아웃·브라우저 보관
 
-계정 세션은 기본 7일, 그룹 세션은 기본 12시간이다. 그룹 만료는 부모 계정 만료를 넘지 않는다. `ACCOUNT_SESSION_TTL`, `MEMBER_SESSION_TTL`은 ISO-8601 Duration 설정값이다. 두 세션 모두 만료 시각과 같은 순간부터 인증을 거절한다. 부모가 만료·폐기된 그룹 세션도 거절한다.
+계정 API 세션은 기본 15분, 그룹 세션은 기본 12시간이며 부모 만료를 넘지 않는다. `ACCOUNT_SESSION_TTL`, `MEMBER_SESSION_TTL`은 ISO-8601 Duration이다. 만료 시각과 같은 순간부터 인증을 거절한다. 장기 로그인 복원은 별도 `REMEMBER_LOGIN_TTL`(기본 30일)과 회전 토큰으로 관리한다.
 
 계정 로그아웃은 현재 계정 세션과 그 하위 그룹 세션만 폐기한다. 다른 기기의 세션은 유지한다. 그룹 로그아웃은 해당 `m_` 토큰만 폐기하므로 유효한 계정 토큰으로 다시 입장할 수 있다. 비회원 토큰으로 서버 그룹 로그아웃을 호출하면 409 GUEST_SESSION이다. 대시보드의 비회원 참여 정보 삭제는 브라우저 저장소만 지우는 동작이며 서버 폐기와 다르다.
 
-React의 `/register`, `/login`, `/account`, `/account/groups`에서 등록·복구·연결·로그아웃을 지원한다. 계정 및 계정 기반 그룹 토큰은 sessionStorage에 보관하고 비회원은 기존 localStorage에 보관한다. 새로고침에는 유지되며 탭 종료 후에는 다시 로그인한다. 인증은 `/account/me`, `/members/me`로 재확인한다. 연결한 그룹 캐시는 계정 전환·만료·로그아웃 시 제거하며 비회원 참여 정보는 보존한다. 로그인 상태에서 새 그룹 생성·가입을 하면 비회원 응답을 먼저 안전하게 저장한 뒤 계정 연결을 시도한다. 연결 실패는 계정 화면에서 재시도할 수 있다.
+React의 `/register`, `/login`, `/account`, `/account/groups`에서 등록·복구·연결·로그아웃을 지원한다. 계정 및 계정 기반 그룹 API 토큰은 sessionStorage, 비회원은 기존 localStorage에 보관한다. 로그인 유지를 선택하면 브라우저를 다시 열어도 HttpOnly 쿠키로 계정을 복원한다. 인증은 `/account/me`, `/members/me`로 재확인한다. 비회원 정보는 계정 로그아웃에도 보존한다. 초대 화면은 기존 멤버를 먼저 복원하고 최초 참여만 비회원 발급 후 계정 연결을 시도한다.
 
-sessionStorage 역시 XSS에 안전한 보관소가 아니다. HTTPS·CSP·외부 스크립트 제한·인증 요청/응답 로그 제외가 필요하다. 쿠키 인증을 도입하지 않아 기존 CORS credentials=false·CSRF 비활성화 정책을 유지한다. 비밀번호 찾기·이메일 인증·OAuth2는 제공하지 않는다.
+sessionStorage 역시 XSS에 안전한 보관소가 아니다. HTTPS·CSP·외부 스크립트 제한·인증 로그 제외를 유지한다. CORS credentials=false는 유지하며 쿠키 변경은 같은 Origin과 커스텀 헤더로 CSRF를 방어한다. 비밀번호 찾기·이메일 인증·OAuth2는 제공하지 않는다.
+
+### 추가 API
+
+등록·로그인의 `?rememberMe=true`는 기본값이며 false이면 세션 쿠키를 발급한다. 두 요청과 쿠키 변경 요청에는 `X-PartySync-Client: web` 헤더가 필요하다.
+
+| 요청 | 동작 |
+| --- | --- |
+| POST /api/auth/refresh | HttpOnly 쿠키 회전, 새 계정 Bearer 반환. 401 재인증, 5xx 재시도 |
+| POST /api/auth/forget | Bearer 없이 해당 쿠키의 부모 세션과 하위 세션 폐기, 쿠키 삭제 |
+| POST /api/auth/logout | 기존 Bearer 세션 및 해당 기기 복원 쿠키 폐기 |
+| POST /api/account/invite/session | 계정 Bearer와 `{ "inviteCode": "…" }`로 자신이 속한 활성 멤버 세션 재발급. 없으면 404 |
+| DELETE /api/groups/{groupId}/members/{memberId} | 같은 그룹의 OWNER가 일반 멤버를 비활성화. 성공 204, 권한 위반 403 |
+| POST /api/groups/{groupId}/invite/check | 멤버 Bearer와 `{ "inviteCode": "…" }`로 자신의 그룹 초대인지 확인. `{ "matches": true/false }` 반환. 초대 해시가 없는 기존 비회원의 재입장에 사용 |
 
 | HTTP | code | 의미 |
 |---|---|---|
