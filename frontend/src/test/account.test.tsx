@@ -15,13 +15,16 @@ const membership = { group: { groupId: 1, name: '원래 파티', description: ''
 const guest = { groupId: 1, name: '원래 파티', token: guestToken, revision: 'guest' }
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status })
 function seedAccount() { storeAccount({ token: accountToken, user, revision: 'account-one', expiresAt: expiry }) }
-function setup(path: string, options: { failLogin?: boolean; expireAccount?: boolean; failClaim?: boolean; failLogout?: boolean; failEntry?: boolean; groupsEmpty?: boolean } = {}) {
+function setup(path: string, options: { restore?: boolean; restoreFailure?: number; resume?: boolean; failLogin?: boolean; expireAccount?: boolean; failClaim?: boolean; failLogout?: boolean; failEntry?: boolean; groupsEmpty?: boolean } = {}) {
   let claimed = false, signedOut = false
   const fetch = vi.fn().mockImplementation(async (url: string, init: RequestInit) => {
+    if (url.endsWith('/auth/refresh')) return options.restoreFailure ? json({}, options.restoreFailure) : options.restore ? json({ user, accountAccessToken: accountToken, expiresAt: expiry }) : json({ code: 'UNAUTHORIZED' }, 401)
+    if (url.includes('/auth/')) url = url.split('?')[0]
     if (url.includes('/auth/') && init.method !== 'POST') throw new Error('Expected POST authentication request')
     if (url.endsWith('/auth/login') || url.endsWith('/auth/register')) return options.failLogin ? json({ code: 'UNAUTHORIZED' }, 401) : json({ user, accountAccessToken: accountToken, expiresAt: expiry }, url.endsWith('register') ? 201 : 200)
     if (url.endsWith('/account/me')) return options.expireAccount || signedOut ? json({ code: 'UNAUTHORIZED' }, 401) : json(user)
     if (url.endsWith('/account/groups')) return json(options.groupsEmpty && !claimed ? [] : [{ groupId: 1, groupName: '원래 파티', memberId: 10, nickname: '원래 닉네임', role: 'OWNER', joinedAt: '' }])
+    if (url.endsWith('/account/invite/session')) return options.resume ? json(membership) : json({ code: 'MEMBERSHIP_NOT_FOUND' }, 404)
     if (url.endsWith('/memberships/claim')) { if (options.failClaim) return json({ code: 'MEMBERSHIP_CONFLICT' }, 409); claimed = true; return json(membership) }
     if (url.endsWith('/account/groups/1/session')) return options.failEntry ? json({ code: 'UNAUTHORIZED' }, 401) : json(membership)
     if (url.endsWith('/auth/logout')) { if (options.failLogout) return json({}, 500); signedOut = true; return new Response(null, { status: 204 }) }
@@ -41,9 +44,28 @@ function setup(path: string, options: { failLogin?: boolean; expireAccount?: boo
 }
 
 describe('계정 등록과 로그인', () => {
+  it('탭 인증이 없어도 HttpOnly 쿠키 갱신으로 계정을 복원한다', async () => {
+    const { fetch } = setup('/account', { restore: true })
+    await screen.findByRole('heading', { name: '내 계정과 파티' })
+    expect(readAccount()?.user.userId).toBe(1)
+    expect(localStorage.getItem(ACCOUNT_KEY)).toBeNull()
+    expect(fetch.mock.calls.filter(c => c[0].endsWith('/auth/refresh'))).toHaveLength(1)
+  })
+  it('초대 링크에서 계정을 복원한 뒤 기존 멤버로 이동하며 새 가입을 하지 않는다', async () => {
+    const { fetch, router } = setup('/join/known-code', { restore: true, resume: true })
+    await screen.findByRole('heading', { name: '원래 파티' })
+    expect(router.state.location.pathname).toBe('/groups/1')
+    expect(readSessions()[0].accountUserId).toBe(1)
+    expect(fetch.mock.calls.some(c => c[0].endsWith('/groups/join'))).toBe(false)
+  })
+  it('쿠키 갱신 서버 장애는 재시도를 안내한다', async () => {
+    setup('/account', { restoreFailure: 503 })
+    await screen.findByRole('alert')
+    expect(screen.queryByRole('heading', { name: '계정 로그인이 필요해요' })).not.toBeInTheDocument()
+  })
   it('비밀번호 확인·바이트 길이를 검증하고 잘못된 요청을 전송하지 않는다', async () => {
     const { fetch } = setup('/register')
-    await userEvent.type(screen.getByLabelText('로그인 ID'), 'raidmaster')
+    await userEvent.type(await screen.findByLabelText('로그인 ID'), 'raidmaster')
     await userEvent.type(screen.getByLabelText('비밀번호', { exact: true }), '가'.repeat(25))
     await userEvent.type(screen.getByLabelText('비밀번호 확인'), 'different-password')
     await userEvent.click(screen.getByRole('button', { name: '계정 등록' }))
@@ -52,7 +74,7 @@ describe('계정 등록과 로그인', () => {
   })
   it('등록 후 계정 정보만 보관하고 비회원 연결을 안내한다', async () => {
     writeSessions([guest]); const { fetch, router } = setup('/register', { groupsEmpty: true })
-    await userEvent.type(screen.getByLabelText('로그인 ID'), 'raidmaster')
+    await userEvent.type(await screen.findByLabelText('로그인 ID'), 'raidmaster')
     await userEvent.type(screen.getByLabelText('비밀번호', { exact: true }), 'safe-password-123')
     await userEvent.type(screen.getByLabelText('비밀번호 확인'), 'safe-password-123')
     await userEvent.click(screen.getByRole('button', { name: '계정 등록' }))
@@ -62,24 +84,24 @@ describe('계정 등록과 로그인', () => {
     expect(readAccount()?.user.loginId).toBe('raidmaster')
     expect(localStorage.getItem(ACCOUNT_KEY)).toBeNull()
     expect(sessionStorage.getItem(ACCOUNT_KEY)).not.toContain('safe-password-123')
-    const request = fetch.mock.calls.find(c => c[0].endsWith('/auth/register'))!
+    const request = fetch.mock.calls.find(c => c[0].includes('/auth/register'))!
     expect(request[1].headers.Authorization).toBeUndefined()
   })
   it('로그인 성공 후 그룹 목록을 조회한다', async () => {
     setup('/login')
-    await userEvent.type(screen.getByLabelText('로그인 ID'), 'raidmaster')
+    await userEvent.type(await screen.findByLabelText('로그인 ID'), 'raidmaster')
     await userEvent.type(screen.getByLabelText('비밀번호'), 'safe-password-123')
     await userEvent.click(screen.getByRole('button', { name: '로그인' }))
     await screen.findByText('원래 닉네임 · 파티장')
   })
   it('로그인 실패 시 계정을 저장하지 않고 아이디를 보존한다', async () => {
     setup('/login', { failLogin: true })
-    await userEvent.type(screen.getByLabelText('로그인 ID'), 'raidmaster')
+    await userEvent.type(await screen.findByLabelText('로그인 ID'), 'raidmaster')
     await userEvent.type(screen.getByLabelText('비밀번호'), 'safe-password-123')
     await userEvent.click(screen.getByRole('button', { name: '로그인' }))
     await screen.findByRole('alert')
     expect(screen.getByRole('alert')).toHaveTextContent('아이디 또는 비밀번호를 확인')
-    expect(readAccount()).toBeNull(); expect(screen.getByLabelText('로그인 ID')).toHaveValue('raidmaster')
+    expect(readAccount()).toBeNull(); expect(await screen.findByLabelText('로그인 ID')).toHaveValue('raidmaster')
   })
 })
 

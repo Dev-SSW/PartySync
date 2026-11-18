@@ -11,6 +11,8 @@ import { useState } from 'react'
 
 const session = { groupId: 1, name: '레이드', token: 'A'.repeat(43), revision: 'one' }
 function app(path: string) {
+  const previousFetch = globalThis.fetch
+  vi.stubGlobal('fetch', (url: string, init: RequestInit) => url.endsWith('/auth/refresh') ? Promise.resolve(json({}, 401)) : previousFetch(url, init))
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
@@ -46,6 +48,39 @@ function dashboardFetch(role = 'MEMBER') {
 }
 
 describe('그룹 참여와 인증 복원', () => {
+  it('초대 해시가 없는 기존 비회원도 토큰으로 초대를 검증해 자동 재입장한다', async () => {
+    writeSessions([session])
+    const base = dashboardFetch()
+    const fetch = vi.fn().mockImplementation(async (url: string) => url.endsWith('/invite/check') ? json({ matches: true }) : base(url))
+    vi.stubGlobal('fetch', fetch)
+    const { router } = app('/join/known-code')
+    await screen.findByRole('heading', { name: '레이드' })
+    expect(router.state.location.pathname).toBe('/groups/1')
+    expect(fetch.mock.calls.some(c => c[0].endsWith('/groups/join'))).toBe(false)
+    expect(readSessions()[0].token).toBe(session.token)
+  })
+  it('파티장만 확인 후 강퇴하며 목록과 인원수를 갱신한다', async () => {
+    writeSessions([session])
+    let removed = false
+    const base = dashboardFetch('OWNER')
+    const fetch = vi.fn().mockImplementation(async (url: string, init: RequestInit) => {
+      if (init.method === 'DELETE') { removed = true; return new Response(null, { status: 204 }) }
+      if (url.endsWith('/members')) return json([{ ...me, role: 'OWNER', joinedAt: '' }, ...removed ? [] : [{ memberId: 20, nickname: '대상 멤버', role: 'MEMBER', joinedAt: '' }]])
+      if (url.endsWith('/groups/1')) return json({ ...group, memberCount: removed ? 1 : 2 })
+      return base(url)
+    })
+    vi.stubGlobal('fetch', fetch)
+    app('/groups/1')
+    await userEvent.click(await screen.findByText(/파티원 2명/))
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    await userEvent.click(screen.getByRole('button', { name: '강퇴' }))
+    expect(fetch.mock.calls.some(c => c[1].method === 'DELETE')).toBe(false)
+    confirm.mockReturnValue(true)
+    await userEvent.click(screen.getByRole('button', { name: '강퇴' }))
+    await screen.findByText(/파티원 1명/)
+    expect(screen.queryByText('대상 멤버')).not.toBeInTheDocument()
+    expect(screen.getByText('파티원을 강퇴했습니다.')).toHaveAttribute('role', 'status')
+  })
   it('기존 인증 정보가 있어도 재검증에서 401이면 접근을 차단한다', async () => {
     writeSessions([session])
     const fetch = dashboardFetch()
@@ -56,7 +91,7 @@ describe('그룹 참여와 인증 복원', () => {
     await act(async () => {
       await client.refetchQueries({ queryKey: ['group', 1, 'one', 'me'], exact: true })
     })
-    await screen.findByText('그룹 참여가 필요해요')
+    await screen.findByText('그룹 접근 권한을 확인해 주세요')
     expect(readSessions()).toEqual([])
     expect(screen.queryByRole('heading', { name: '레이드' })).toBeNull()
   })
@@ -68,7 +103,7 @@ describe('그룹 참여와 인증 복원', () => {
       screen.getByLabelText(/초대 코드 또는 초대 링크/),
       'https://party.example/join/Only_Code',
     )
-    await userEvent.type(screen.getByLabelText(/내 닉네임/), '가입자')
+    await userEvent.type(await screen.findByLabelText(/내 닉네임/), '가입자')
     await userEvent.click(screen.getByRole('button', { name: '파티 참여하기' }))
     await screen.findByText(/이미 사용 중/)
     expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
@@ -96,7 +131,7 @@ describe('그룹 참여와 인증 복원', () => {
       screen.getByLabelText(/초대 코드 또는 초대 링크/),
       'https://party.example/groups/123',
     )
-    await userEvent.type(screen.getByLabelText(/내 닉네임/), '가입자')
+    await userEvent.type(await screen.findByLabelText(/내 닉네임/), '가입자')
     await userEvent.click(screen.getByRole('button', { name: '파티 참여하기' }))
     expect(screen.getByRole('alert')).toHaveTextContent('올바른 초대 링크')
     expect(fetch).not.toHaveBeenCalled()
@@ -112,7 +147,7 @@ describe('그룹 참여와 인증 복원', () => {
     vi.stubGlobal('fetch', fetch)
     app('/groups/new')
     await userEvent.type(screen.getByLabelText(/그룹 이름/), '   ')
-    await userEvent.type(screen.getByLabelText(/내 닉네임/), '   ')
+    await userEvent.type(await screen.findByLabelText(/내 닉네임/), '   ')
     await userEvent.click(screen.getByRole('button', { name: '파티 만들기' }))
     expect(screen.getByRole('alert')).toHaveTextContent('필수 항목')
     expect(fetch).not.toHaveBeenCalled()
@@ -130,7 +165,7 @@ describe('그룹 참여와 인증 복원', () => {
     vi.stubGlobal('fetch', fetch)
     app('/groups/new')
     await userEvent.type(screen.getByLabelText(/그룹 이름/), '레이드')
-    await userEvent.type(screen.getByLabelText(/내 닉네임/), '테스터')
+    await userEvent.type(await screen.findByLabelText(/내 닉네임/), '테스터')
     await userEvent.click(screen.getByRole('button', { name: '파티 만들기' }))
     await screen.findByRole('heading', { name: '레이드' })
     expect(readSessions()[0].token).toBe(session.token)
@@ -140,10 +175,10 @@ describe('그룹 참여와 인증 복원', () => {
     const fetch = vi.fn().mockResolvedValue(json({ code: 'NICKNAME_CONFLICT' }, 409))
     vi.stubGlobal('fetch', fetch)
     app('/join/special-code')
-    await userEvent.type(screen.getByLabelText(/내 닉네임/), '중복닉네임')
+    await userEvent.type(await screen.findByLabelText(/내 닉네임/), '중복닉네임')
     await userEvent.click(screen.getByRole('button', { name: '파티 참여하기' }))
     await screen.findByText(/이미 사용 중/)
-    expect(screen.getByLabelText(/내 닉네임/)).toHaveValue('중복닉네임')
+    expect(await screen.findByLabelText(/내 닉네임/)).toHaveValue('중복닉네임')
     expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
       inviteCode: 'special-code',
       nickname: '중복닉네임',
@@ -171,7 +206,7 @@ describe('그룹 참여와 인증 복원', () => {
     writeSessions([session, { ...session, groupId: 2, revision: 'two' }])
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({}, 401)))
     app('/groups/1')
-    await screen.findByText('그룹 참여가 필요해요')
+    await screen.findByText('그룹 접근 권한을 확인해 주세요')
     expect(readSessions().map((s) => s.groupId)).toEqual([2])
   })
   it('다른 그룹 경로에서는 저장된 타 그룹 토큰을 사용하지 않는다', async () => {
@@ -179,7 +214,7 @@ describe('그룹 참여와 인증 복원', () => {
     const fetch = vi.fn()
     vi.stubGlobal('fetch', fetch)
     app('/groups/2')
-    await screen.findByText('그룹 참여가 필요해요')
+    await screen.findByText('그룹 접근 권한을 확인해 주세요')
     expect(fetch).not.toHaveBeenCalled()
   })
   it('서버가 다른 그룹의 /me를 반환하면 조회를 차단한다', async () => {

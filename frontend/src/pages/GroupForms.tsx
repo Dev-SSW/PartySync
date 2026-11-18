@@ -1,9 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, Link2, ShieldCheck } from 'lucide-react'
-import { useMutation } from '@tanstack/react-query'
-import { api } from '../api/client'
-import { Feedback } from '../components/Feedback'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { api, ApiError } from '../api/client'
+import { Feedback, Loading } from '../components/Feedback'
 import { useAuth } from '../features/member/Auth'
 import { inviteHash } from '../features/member/storage'
 import { normalizeInvite } from '../utils/invite'
@@ -25,6 +25,38 @@ export function GroupForm({ mode }: { mode: 'create' | 'join' }) {
   const account = useAccount()
   const navigate = useNavigate()
   const [existing, setExisting] = useState<number | null>(null)
+  /** 보관된 토큰으로 기존 참여 여부를 확인한다. */
+  async function findStored(normalized: string) {
+    const hash = await inviteHash(normalized)
+    const candidates = sessions.filter(s => s.inviteHash === hash || !s.inviteHash)
+    for (const stored of candidates) {
+      try {
+        if (stored.inviteHash === hash) { await api.me(stored); return stored.groupId }
+        // 초대 해시가 없는 예전 참여 정보는 서버에서 해당 그룹의 초대인지 확인한다.
+        if ((await api.checkInvite(stored, normalized)).matches) return stored.groupId
+      } catch (error) { if (!(error instanceof ApiError && error.status === 401)) throw error }
+    }
+    return null
+  }
+  // 초대 링크에서는 새 가입 전에 비회원 정보와 계정 멤버를 먼저 복원한다.
+  const resume = useQuery({
+    queryKey: ['invite-resume', code, account.account?.revision],
+    enabled: !creating && !!inviteCode && !account.restoring && (!account.account || account.ready), retry: false,
+    queryFn: async () => {
+      const normalized = normalizeInvite(code)
+      const stored = await findStored(normalized)
+      if (stored) return stored
+      if (account.credentials && account.ready) {
+        try {
+          const membership = await accountApi.resumeInvite(account.credentials, normalized)
+          await remember(membership, normalized, account.account!.user.userId)
+          return membership.group.groupId
+        } catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error }
+      }
+      return null
+    },
+  })
+  useEffect(() => { if (resume.data) navigate(`/groups/${resume.data}`, { replace: true }) }, [resume.data, navigate])
   useEffect(() => {
     if (inviteCode !== undefined) setCode(inviteCode)
   }, [inviteCode])
@@ -67,6 +99,17 @@ export function GroupForm({ mode }: { mode: 'create' | 'join' }) {
   }
   const mutation = useMutation({
     mutationFn: async () => {
+      if (!creating) {
+        const stored = await findStored(normalizeInvite(code))
+        if (stored) { navigate(`/groups/${stored}`, { replace: true }); return }
+      }
+      if (!creating && account.ready && account.credentials) {
+        try {
+          const membership = await accountApi.resumeInvite(account.credentials, normalizeInvite(code))
+          await remember(membership, normalizeInvite(code), account.account!.user.userId)
+          navigate(`/groups/${membership.group.groupId}`, { replace: true }); return
+        } catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error }
+      }
       const data = await (creating
         ? api.create({
             name: name.trim(),
@@ -92,8 +135,8 @@ export function GroupForm({ mode }: { mode: 'create' | 'join' }) {
         return
       }
     }
-    if (existing) {
-      navigate(`/groups/${existing}`)
+    if (resume.data) {
+      navigate(`/groups/${resume.data}`)
       return
     }
     setValidation('')
@@ -112,7 +155,7 @@ export function GroupForm({ mode }: { mode: 'create' | 'join' }) {
           ? '파티를 만들면 초대 링크를 공유할 수 있어요.'
           : '초대받은 코드와 파티에서 사용할 닉네임만 있으면 돼요.'}
       </p>
-      <form className="card form-card" onSubmit={submit}>
+      {!creating && !!inviteCode && (account.restoring || (account.account && !account.ready && !account.error) || (resume.isFetching)) ? <Loading /> : !creating && (resume.error || account.error) ? <Feedback error={resume.error || account.error} retry={() => { account.retry(); void resume.refetch() }} /> : <form className="card form-card" onSubmit={submit}>
         {creating ? (
           <>
             <label>
@@ -190,7 +233,7 @@ export function GroupForm({ mode }: { mode: 'create' | 'join' }) {
             참여 정보 저장 다시 시도
           </button>
         ) : (
-          <button className="button primary full" disabled={mutation.isPending || !!unsaved}>
+          <button className="button primary full" disabled={mutation.isPending || !!unsaved || account.restoring || (!!account.account && !account.ready)}>
             {mutation.isPending
               ? '처리 중…'
               : creating
@@ -201,10 +244,11 @@ export function GroupForm({ mode }: { mode: 'create' | 'join' }) {
             <ArrowRight size={17} />
           </button>
         )}
-      </form>
+      </form>}
+      {!creating && !account.ready && <p className="muted"><Link to={`/login?returnTo=${encodeURIComponent(`/join/${code}`)}`}>계정에 연결한 기존 파티로 로그인</Link></p>}
       <p className="security-note">
         <ShieldCheck size={16} /> 이 브라우저에 참여 정보가 저장됩니다. 공용 기기 사용에 주의해
-        주세요.
+        주세요. 다른 브라우저에서 복구하려면 계정 연결이 필요할 수 있어요.
       </p>
     </section>
   )

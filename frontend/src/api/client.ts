@@ -10,6 +10,30 @@ import type {
   WeeklySchedule,
   WeeklySlot,
 } from '../types/api'
+import { readAccount, storeAccount } from '../features/account/accountStorage'
+import type { AccountLogin } from './account'
+
+export const ACCOUNT_RESTORED = 'partysync:account-restored'
+let refreshFlight: Promise<AccountLogin | null> | undefined
+/** 동시 갱신 요청을 합치고 HttpOnly 쿠키로 계정을 복원한다. */
+export function restoreAccount(): Promise<AccountLogin | null> {
+  if (refreshFlight) return refreshFlight
+  const run = async () => {
+    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || '/api'}/auth/refresh`, {
+      method: 'POST', headers: { 'X-PartySync-Client': 'web', Accept: 'application/json' }, credentials: 'same-origin', cache: 'no-store',
+    })
+    if (response.status === 401) return null
+    if (!response.ok) throw new ApiError(response.status, 'REFRESH_FAILED', 'Refresh failed')
+    const login = await response.json() as AccountLogin
+    if (!/^u_[A-Za-z0-9_-]{43}$/.test(login.accountAccessToken) || !Number.isSafeInteger(login.user?.userId) || !Number.isFinite(Date.parse(login.expiresAt))) throw new ApiError(502, 'INVALID_REFRESH', 'Invalid refresh response')
+    storeAccount({ token: login.accountAccessToken, user: login.user, expiresAt: login.expiresAt, revision: crypto.randomUUID() })
+    window.dispatchEvent(new Event(ACCOUNT_RESTORED))
+    return login
+  }
+  // Web Locks를 지원하면 탭 사이의 쿠키 갱신도 순서대로 처리한다.
+  refreshFlight = (navigator.locks ? navigator.locks.request('partysync-refresh', run) : run()).finally(() => { refreshFlight = undefined })
+  return refreshFlight
+}
 
 export class ApiError extends Error {
   constructor(
@@ -64,9 +88,9 @@ export function errorMessage(error: unknown): string {
 
 export async function request<T>(
   path: string,
-  options: { method?: string; body?: unknown; auth?: Credentials | AccountCredentials; signal?: AbortSignal } = {},
+  options: { method?: string; body?: unknown; auth?: Credentials | AccountCredentials; signal?: AbortSignal; refreshed?: boolean } = {},
 ): Promise<T> {
-  const headers: Record<string, string> = { Accept: 'application/json' }
+  const headers: Record<string, string> = { Accept: 'application/json', 'X-PartySync-Client': 'web' }
   if (options.body !== undefined) headers['Content-Type'] = 'application/json'
   if (options.auth) headers.Authorization = `Bearer ${options.auth.token}`
   const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || '/api'}${path}`, {
@@ -74,11 +98,17 @@ export async function request<T>(
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
     signal: options.signal,
-    credentials: 'omit',
+    credentials: 'same-origin',
     cache: 'no-store',
     referrerPolicy: 'no-referrer',
   })
   if (!response.ok) {
+    if (response.status === 401 && options.auth && 'account' in options.auth && !options.refreshed) {
+      // 계정 인증 실패는 갱신 후 한 번만 재시도한다.
+      const current = readAccount()
+      const login = current && current.token !== options.auth.token ? current.token : (await restoreAccount())?.accountAccessToken
+      if (login) return request<T>(path, { ...options, auth: { account: true, token: login }, refreshed: true })
+    }
     if (response.status === 401 && options.auth)
       window.dispatchEvent(new CustomEvent('account' in options.auth ? ACCOUNT_INVALID : AUTH_INVALID, { detail: options.auth }))
     const data = (await response.json().catch(() => ({}))) as { code?: string }
@@ -88,6 +118,8 @@ export async function request<T>(
 }
 const range = (from: string, to: string) => `?${new URLSearchParams({ from, to })}`
 export const api = {
+  checkInvite: (auth: Credentials, inviteCode: string) => request<{ matches: boolean }>(`/groups/${auth.groupId}/invite/check`, { auth, method: 'POST', body: { inviteCode } }),
+  removeMember: (auth: Credentials, memberId: number) => request<void>(`/groups/${auth.groupId}/members/${memberId}`, { auth, method: 'DELETE' }),
   create: (body: { name: string; description?: string; ownerNickname: string }) =>
     request<Membership>('/groups', { method: 'POST', body }),
   join: (body: { inviteCode: string; nickname: string }) =>
