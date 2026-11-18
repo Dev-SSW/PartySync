@@ -41,7 +41,7 @@ function setup(path = '/groups/1/posts', options: { role?: 'OWNER' | 'MEMBER'; m
     if (url.includes('/availability?')) return json({ groupId, days: [] })
     return json({ groupId, name: '테스트 파티', description: '', memberCount: 1, createdAt: '' })
   })
-  vi.stubGlobal('fetch', fetch)
+  vi.stubGlobal('fetch', (url: string, init: RequestInit) => url.endsWith('/auth/refresh') ? Promise.resolve(json({}, 401)) : fetch(url, init))
   writeSessions([{ groupId: 1, name: '테스트 파티', token: 'A'.repeat(43), revision: 'one' }, { groupId: 2, name: '다른 파티', token: 'B'.repeat(43), revision: 'two' }])
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   const router = createMemoryRouter(routes, { initialEntries: [path] })

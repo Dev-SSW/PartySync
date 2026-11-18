@@ -28,6 +28,8 @@ public class UserSession {
     public UserSession(UserAccount user, String hash, Instant now, Instant expiry) {
         this.user = user; tokenHash = hash; createdAt = now; expiresAt = expiry;
     }
+    /** 기존 세션을 유지하며 API 토큰과 만료 시각을 교체한다. */
+    public void rotate(String hash, Instant expiry) { tokenHash = hash; expiresAt = expiry; }
     public boolean active(Instant now) { return revokedAt == null && now.isBefore(expiresAt); }
     public void revoke(Instant now) { if (revokedAt == null) revokedAt = now; }
 }

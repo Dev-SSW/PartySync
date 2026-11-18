@@ -1905,3 +1905,5 @@ textarea {
 .account-groups p { margin: 6px 0; }
 .account-groups .board-text-link { display: block; margin-top: 8px; }
 @media (max-width: 600px) { .account-groups li { flex-wrap: wrap; } .account-groups .actions { flex-wrap: wrap; } }
+label.remember-login { display: flex; align-items: center; gap: 0.6rem; }
+label.remember-login input { width: 1rem; height: 1rem; }

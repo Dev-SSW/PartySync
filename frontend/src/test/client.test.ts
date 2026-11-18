@@ -8,8 +8,8 @@ describe('공통 API 클라이언트', () => {
     expect(fetch).toHaveBeenCalledWith(
       '/api/members/me',
       expect.objectContaining({
-        headers: { Accept: 'application/json', Authorization: 'Bearer secret-token' },
-        credentials: 'omit',
+        headers: { Accept: 'application/json', Authorization: 'Bearer secret-token', 'X-PartySync-Client': 'web' },
+        credentials: 'same-origin',
       }),
     )
     expect(fetch.mock.calls[0][0]).not.toContain(auth.token)

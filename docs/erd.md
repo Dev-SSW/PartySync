@@ -169,4 +169,6 @@ V3는 위 세 테이블과 GroupMember의 선택적 연결을 추가한다. V1·
 
 ## 참고
 
+V4는 `group_member.active boolean not null default true`와 `account_refresh_token`을 추가한다. 복원 테이블은 SHA-256 `token_hash` PK, `user_session_id` FK, 고정 `expires_at`, 쿠키의 영속 여부 `persistent`, 사용 시각 `used_at`으로 구성한다. V5는 만료 정리 인덱스를 추가한다. 멤버의 기존 UNIQUE/FK를 유지하여 비활성 닉네임과 계정 연결도 보존한다. [인증·강퇴 정책](pwa-and-sessions.md)을 참고한다.
+
 삭제 전파 방식은 [Hibernate ORM 공식 문서](https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html)의 @OnDelete와 cascade 동작을 따른다.

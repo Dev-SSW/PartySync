@@ -51,7 +51,7 @@ public class AccountService {
         return signIn(user);
     }
 
-    private AccountResponses.SignedIn signIn(UserAccount user) {
+    AccountResponses.SignedIn signIn(UserAccount user) {
         String raw = "u_" + tokens.issue().raw();
         Instant now = clock.instant(), expiry = now.plus(policy.accountTtl);
         sessions.saveAndFlush(new UserSession(user, tokens.hash(raw), now, expiry));
@@ -98,6 +98,15 @@ public class AccountService {
         UserSession parent = lockActive(principal);
         GroupMember member = members.findByUserIdAndGroupId(principal.userId(), groupId)
                 .orElseThrow(() -> new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "연결된 그룹에만 입장할 수 있습니다."));
+        return issueMember(member, parent);
+    }
+
+    /** 초대 코드와 계정 연결을 함께 확인하고 기존 멤버로 재입장한다. */
+    @Transactional
+    public AccountResponses.Membership resumeInvite(AccountPrincipal principal, String code) {
+        UserSession parent = lockActive(principal);
+        GroupMember member = members.findAccountInvite(principal.userId(), code)
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "MEMBERSHIP_NOT_FOUND", "연결된 파티가 없습니다."));
         return issueMember(member, parent);
     }
 

@@ -24,7 +24,21 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/groups")
 public class GroupController {
+    /** 파티장을 검증한 뒤 대상 멤버를 비활성화한다. */
+    @org.springframework.web.bind.annotation.DeleteMapping("/{groupId}/members/{memberId}")
+    public ResponseEntity<Void> remove(@PathVariable Long groupId, @PathVariable Long memberId,
+                                      @AuthenticationPrincipal MemberPrincipal principal) {
+        groups.removeMember(groupId, memberId, principal);
+        return ResponseEntity.noContent().build();
+    }
     private final GroupService groups;
+
+    /** 기존 참여 정보에 초대 해시가 없을 때 소속 그룹의 초대인지 확인한다. */
+    @PostMapping("/{groupId}/invite/check")
+    public java.util.Map<String, Boolean> checkInvite(@PathVariable Long groupId,
+            @AuthenticationPrincipal MemberPrincipal principal, @Valid @RequestBody GroupRequests.Invite request) {
+        return java.util.Map.of("matches", groups.matchesInvite(groupId, principal, request.inviteCode()));
+    }
 
     public GroupController(GroupService groups) { this.groups = groups; }
 

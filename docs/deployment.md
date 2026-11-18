@@ -24,7 +24,8 @@ Linux 한 대에서 Caddy(React 정적 파일 + HTTPS), Spring Boot, PostgreSQL 
 | POSTGRES_ADMIN_PASSWORD_FILE / APP_DB_PASSWORD_FILE | 서로 다른 비밀번호 파일의 절대 경로 |
 | BACKEND_IMAGE / FRONTEND_IMAGE / IMAGE_TAG | GHCR 저장소와 검증된 main의 전체 40자 SHA |
 | CORS_ALLOWED_ORIGINS | 동일 도메인이면 빈 값. 외부 Origin이 필요할 때만 명시 |
-| ACCOUNT_SESSION_TTL / MEMBER_SESSION_TTL | 기본 P7D / PT12H. 기존 Bearer 세션 정책 유지 |
+| ACCOUNT_SESSION_TTL / MEMBER_SESSION_TTL | 기본 PT15M / PT12H. 그룹 세션은 부모 만료 이내 |
+| REMEMBER_LOGIN_TTL | 기본 P30D. HttpOnly 복원 쿠키의 고정 서버 수명 |
 | AUTH_* / GROUP_* | 등록·로그인 및 공개 그룹 API의 단일 서버 요청 제한 |
 | DB_POOL_SIZE / JAVA_TOOL_OPTIONS | 연결 풀 및 JVM 메모리 조정 |
 
@@ -119,7 +120,7 @@ checksum을 확인하고 같은 PostgreSQL 인스턴스의 `partysync_restore_*_
 - 반복/예외·빈 예외·복원·클릭/드래그 자동 저장·본인 체크·참여 수·새벽 접기와 모바일 레이아웃을 확인한다.
 - 게시글 CRUD·카테고리 OWNER 관리·대시보드 최신 글을 확인한다.
 - 계정 등록·로그인·비회원 연결·다른 브라우저 복구·세션 만료·기기별 로그아웃을 확인한다. 기존 43자 비회원 토큰도 지원한다.
-- Bearer 계정/멤버 토큰은 sessionStorage, 비회원은 localStorage다. HTTPS와 CSP가 XSS 위험을 완전히 제거하지는 않는다. 쿠키 인증이 아니므로 기존 credentials=false/헤더 기반 CSRF 정책을 유지한다.
+- Bearer 계정/멤버 토큰은 sessionStorage, 비회원은 localStorage다. 로그인 복원은 HttpOnly·Secure·SameSite 쿠키를 추가로 사용한다. [배포 설정·마이그레이션·설치 확인](pwa-and-sessions.md)을 따른다. CORS credentials=false를 유지하고 쿠키 변경 요청의 Origin과 커스텀 헤더를 검증한다.
 - 등록/로그인은 IP·ID 제한을 유지하며 운영 그룹 생성/가입은 기본 IP별 10회/30회, 1분 창이다. 프록시 원본 IP 복원을 우회할 수 없어야 한다. 다중 인스턴스에서는 메모리 제한기를 공유하도록 별도 설계한다.
 - `docker stats --no-stream`, DB 접속 수, OOM/restart 횟수, 디스크와 백업 크기를 관찰한다. Docker 로그는 서비스당 최대 10MB × 3개로 회전한다. access logging은 초대 URL 유출 방지를 위해 켜지 않는다. 비밀번호·토큰·Authorization·요청 본문을 로그에 수집하지 않는다.
 - healthcheck는 장애 감지이며 Docker restart 정책이 모든 unhealthy 상태를 자동 복구하는 것은 아니다. DB 재연결은 앱 pool이 처리하며 최종 `/healthz`를 확인한다. 외부 포트는 Caddy의 X-Forwarded-Port를 신뢰된 Tomcat 프록시 설정으로 복원하므로 비표준 로컬 검증 포트에서도 동일 출처가 유지된다.

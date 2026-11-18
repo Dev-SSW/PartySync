@@ -32,6 +32,8 @@ class AccountMigrationTest {
             Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema).load().migrate();
             assertThat(jdbc.queryForObject("select access_token_hash from " + schema + ".group_member where id=?", String.class, member)).isEqualTo("a".repeat(64));
             assertThat(jdbc.queryForObject("select user_id from " + schema + ".group_member where id=?", Long.class, member)).isNull();
+            assertThat(jdbc.queryForObject("select active from " + schema + ".group_member where id=?", Boolean.class, member)).isTrue();
+            assertThat(jdbc.queryForObject("select count(*) from " + schema + ".account_refresh_token", Long.class)).isZero();
             assertThat(jdbc.queryForObject("select author_id from " + schema + ".post", Long.class)).isEqualTo(member);
             assertThat(jdbc.queryForObject("select end_minute from " + schema + ".weekly_availability", Integer.class)).isEqualTo(1440);
         } finally {

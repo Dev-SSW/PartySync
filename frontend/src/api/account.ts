@@ -5,8 +5,10 @@ export interface AccountUser { userId: number; loginId: string; createdAt: strin
 export interface AccountLogin { user: AccountUser; accountAccessToken: string; expiresAt: string }
 export interface AccountGroup { groupId: number; groupName: string; memberId: number; nickname: string; role: Role; joinedAt: string }
 export const accountApi = {
-  register: (loginId: string, password: string) => request<AccountLogin>('/auth/register', { method: 'POST', body: { loginId, password } }),
-  login: (loginId: string, password: string) => request<AccountLogin>('/auth/login', { method: 'POST', body: { loginId, password } }),
+  register: (loginId: string, password: string, remember = true) => request<AccountLogin>(`/auth/register?rememberMe=${remember}`, { method: 'POST', body: { loginId, password } }),
+  login: (loginId: string, password: string, remember = true) => request<AccountLogin>(`/auth/login?rememberMe=${remember}`, { method: 'POST', body: { loginId, password } }),
+  resumeInvite: (auth: AccountCredentials, inviteCode: string) => request<Membership>('/account/invite/session', { auth, method: 'POST', body: { inviteCode } }),
+  forget: () => request<void>('/auth/forget', { method: 'POST' }),
   me: (auth: AccountCredentials) => request<AccountUser>('/account/me', { auth }),
   groups: (auth: AccountCredentials) => request<AccountGroup[]>('/account/groups', { auth }),
   claim: (auth: AccountCredentials, memberAccessToken: string) => request<Membership>('/account/memberships/claim', { auth, method: 'POST', body: { memberAccessToken } }),

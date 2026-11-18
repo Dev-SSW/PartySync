@@ -69,6 +69,12 @@ public class GroupMember {
         accessTokenHash = null;
     }
 
+    @Column(nullable = false)
+    private boolean active = true;
+
+    /** 일정·게시글과 인증 이력을 남기고 그룹 접근만 차단한다. */
+    public void deactivate() { active = false; }
+
     @CreatedDate
     @Column(name = "joined_at", nullable = false, updatable = false)
     private LocalDateTime joinedAt;

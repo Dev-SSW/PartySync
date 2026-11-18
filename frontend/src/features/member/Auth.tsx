@@ -6,6 +6,8 @@ import type { Membership } from '../../types/api'
 import { inviteHash, readSessions, STORAGE_KEY, writeSessions, type Session } from './storage'
 import { Feedback, Loading } from '../../components/Feedback'
 import { AccountProvider } from '../account/AccountAuth'
+import { useAccount } from '../account/AccountAuth'
+import { accountApi } from '../../api/account'
 
 interface AuthState {
   sessions: Session[]
@@ -106,10 +108,26 @@ export function useGroupSession() {
 }
 export function RequireMember() {
   const { session, me } = useGroupSession()
+  const { groupId } = useParams()
+  const account = useAccount()
+  const { remember } = useAuth()
+  // 그룹 토큰을 잃었거나 만료되면 계정에 연결된 기존 멤버로 복원한다.
+  const recovery = useQuery({
+    queryKey: ['member-recovery', groupId, account.account?.revision],
+    enabled: !session && account.ready, retry: false,
+    queryFn: async () => {
+      const membership = await accountApi.enter(account.credentials!, Number(groupId))
+      await remember(membership, undefined, account.account!.user.userId)
+      return true
+    },
+  })
+  if (!session && (account.restoring || recovery.isFetching)) return <Loading />
   if (!session)
     return (
       <section className="narrow page">
-        <h1>그룹 참여가 필요해요</h1>
+        <h1>그룹 접근 권한을 확인해 주세요</h1>
+        <p role="alert">인증이 만료되었거나 파티에서 제외되어 접근할 수 없습니다.</p>
+        {recovery.error && <Feedback error={recovery.error} />}
         <p className="muted">
           계정에 연결한 그룹은 로그인 후 기존 멤버로 다시 입장하세요. 비회원은 초대 링크로 참여할 수 있어요.
         </p>

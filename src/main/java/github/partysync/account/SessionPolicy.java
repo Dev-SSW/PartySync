@@ -12,7 +12,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 public class SessionPolicy {
     final Duration accountTtl;
     final Duration memberTtl;
-    public SessionPolicy(@Value("${app.auth.account-ttl:P7D}") Duration accountTtl,
+    public SessionPolicy(@Value("${app.auth.account-ttl:PT15M}") Duration accountTtl,
                          @Value("${app.auth.member-ttl:PT12H}") Duration memberTtl) {
         if (accountTtl.isNegative() || accountTtl.isZero() || memberTtl.isNegative() || memberTtl.isZero()) throw new IllegalArgumentException("Session TTL must be positive");
         this.accountTtl = accountTtl; this.memberTtl = memberTtl;

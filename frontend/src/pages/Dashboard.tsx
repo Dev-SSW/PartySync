@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   CalendarDays,
   ChevronLeft,
@@ -21,7 +21,9 @@ import { LatestPosts } from '../features/board/LatestPosts'
 import { addDays, monday, seoulToday } from '../utils/schedule'
 
 export function Dashboard() {
+  const client = useQueryClient()
   const { session, me, key } = useGroupSession()
+  const remove = useMutation({ mutationFn: (id: number) => api.removeMember(session!, id), onSuccess: async () => { await client.invalidateQueries({ queryKey: ['group', session!.groupId] }) } })
   const { forget } = useAuth()
   const navigate = useNavigate()
   const [week, setWeek] = useState(() => monday(seoulToday()))
@@ -282,9 +284,12 @@ export function Dashboard() {
                     </span>
                   </div>
                   {member.role === 'OWNER' && <Crown size={16} className="crown" />}
+                  {isOwner && member.role !== 'OWNER' && member.memberId !== me.data!.memberId && <button className="button small" disabled={remove.isPending} onClick={() => { if (window.confirm(`${member.nickname}님을 강퇴할까요? 일정과 게시글 기록은 보존되며, 기존 초대 링크로 새로 참여할 수 있습니다.`)) remove.mutate(member.memberId) }}>강퇴</button>}
                 </li>
               ))}
             </ul>
+            {remove.error && <Feedback error={remove.error} />}
+            {remove.isSuccess && <p role="status">파티원을 강퇴했습니다.</p>}
           </details>
           <details className="card guide-card">
             <summary>시간표 사용 안내</summary>

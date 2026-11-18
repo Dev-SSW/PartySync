@@ -10,6 +10,10 @@ import jakarta.validation.constraints.Size;
  */
 public final class GroupRequests {
     private GroupRequests() { }
+    /** 초대 확인·재입장에 필요한 코드만 받는다. */
+    public record Invite(@NotBlank @Size(max = 128) String inviteCode) {
+        @Override public String toString() { return "Invite[REDACTED]"; }
+    }
 
     /**
      * 정규화된 그룹명과 생성자 닉네임을 검증하는 생성 요청

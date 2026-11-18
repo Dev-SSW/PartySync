@@ -50,7 +50,7 @@ public class SecurityConfig {
         });
         return http
                 .cors(AbstractHttpConfigurer::disable)
-                // 인증은 Authorization 헤더만 사용하며 쿠키나 HTTP 세션에 의존하지 않음
+                // API는 Bearer 인증. 복원 쿠키 변경은 컨트롤러의 Origin/커스텀 헤더 검사로 보호한다.
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .requestCache(AbstractHttpConfigurer::disable)
@@ -64,7 +64,7 @@ public class SecurityConfig {
                         .accessDeniedHandler((request, response, exception) -> errors.write(response, 403)))
                 .authorizeHttpRequests(requests -> requests
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
-                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/groups", "/api/groups/join", "/api/auth/register", "/api/auth/login").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/groups", "/api/groups/join", "/api/auth/register", "/api/auth/login", "/api/auth/refresh", "/api/auth/forget").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/actuator/health").permitAll()
                         .requestMatchers("/actuator/**").denyAll()
                         .requestMatchers("/api/account/**", "/api/auth/logout").hasRole("ACCOUNT")
@@ -91,7 +91,7 @@ public class SecurityConfig {
         CorsConfiguration cors = new CorsConfiguration();
         cors.setAllowedOrigins(allowed);
         cors.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        cors.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept"));
+        cors.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "X-PartySync-Client"));
         cors.setExposedHeaders(List.of("Location"));
         cors.setAllowCredentials(false);
         cors.setMaxAge(3600L);
