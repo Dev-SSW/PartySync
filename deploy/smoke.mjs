@@ -1,4 +1,4 @@
-// Isolated local/CI deployment check. Never reads the developer's .env or an existing DB.
+// 로컬·CI 전용 배포 검사로, 개발용 .env와 기존 DB는 사용하지 않는다.
 import { spawnSync } from 'node:child_process'
 import { randomBytes, createHash } from 'node:crypto'
 import { mkdirSync, writeFileSync, readFileSync, readdirSync } from 'node:fs'
@@ -7,12 +7,17 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:net'
 
 const root = resolve(import.meta.dirname, '..')
+// 저장소의 마이그레이션 목록과 실제 적용 버전을 비교한다.
+const migrationVersions = readdirSync(join(root, 'src/main/resources/db/migration'))
+  .map(file => /^V(\d+(?:[._]\d+)*)__.+\.sql$/.exec(file)?.[1].replaceAll('_', '.'))
+  .filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+assert.ok(migrationVersions.length > 0)
 const project = `partysync-smoke-${Date.now()}-${randomBytes(4).toString('hex')}`
 const work = join(root, 'build', project)
 mkdirSync(work, { recursive: true, mode: 0o700 })
 const adminPassword = randomBytes(32).toString('hex'), appPassword = randomBytes(32).toString('hex')
 const adminFile = join(work, 'admin.txt'), appFile = join(work, 'app.txt'), envFile = join(work, '.env')
-// Match openssl-generated text secret files, including their trailing newline.
+// 운영용 텍스트 시크릿 파일과 같은 줄바꿈 형식으로 테스트 값을 저장한다.
 writeFileSync(adminFile, adminPassword + '\n', { mode: 0o444 }); writeFileSync(appFile, appPassword + '\n', { mode: 0o444 })
 const tag = 'phase7-local'
 const base = 'http://localhost:18080'
@@ -42,7 +47,7 @@ function run(command, commandArgs, env = {}) {
 }
 function pass(message) { console.log(`PASS ${message}`) }
 async function request(path, { method = 'GET', body, token, headers = {} } = {}) {
-  const response = await fetch(base + path, { method, headers: { ...(path.startsWith('/api') ? { Origin: base } : {}), ...headers, ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(25000) })
+  const response = await fetch(base + path, { method, headers: { ...(path.startsWith('/api') ? { Origin: base, 'X-PartySync-Client': 'web' } : {}), ...headers, ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(25000) })
   const text = await response.text()
   assert.ok(!text.includes(adminPassword) && !text.includes(appPassword))
   return { status: response.status, headers: response.headers, text, data: response.headers.get('content-type')?.includes('json') ? JSON.parse(text) : undefined }
@@ -50,7 +55,7 @@ async function request(path, { method = 'GET', body, token, headers = {} } = {})
 async function ok(path, options, status = 200) { const result = await request(path, options); assert.equal(result.status, status, `${path}: unexpected status`); return result.data }
 async function waitHealthy() {
   for (let i = 0; i < 90; i++) {
-    try { if ((await request('/healthz')).status === 200) return } catch { /* startup or reconnect */ }
+    try { if ((await request('/healthz')).status === 200) return } catch { /* 시작·재연결 중에는 다시 확인한다. */ }
     await new Promise(resolve => setTimeout(resolve, 1000))
   }
   throw new Error('Backend did not recover')
@@ -62,7 +67,7 @@ let started = false
 try {
   for (const port of [18080, 18443]) await new Promise((resolve, reject) => { const socket = createServer(); socket.once('error', reject); socket.listen(port, '127.0.0.1', () => socket.close(resolve)) })
   compose('config', '--quiet')
-  // Refuse to mutate Docker resources if inherited shell variables changed isolation.
+  // 외부 환경 변수로 격리 설정이 바뀌었으면 Docker 리소스를 변경하지 않는다.
   const config = JSON.parse(compose('config', '--format', 'json'))
   assert.equal(config.name, project)
   assert.equal(config.services.postgres.environment.POSTGRES_DB, 'partysync_smoke')
@@ -76,13 +81,13 @@ try {
   assert.ok(!config.services.backend.ports && !config.services.postgres.ports)
   assert.equal(config.networks.database.internal, true)
   assert.equal(query("select rolsuper from pg_roles where rolname=current_user"), 'f')
-  assert.equal(query('select count(*) from flyway_schema_history where success'), '3')
+  assert.equal(query("select string_agg(version, ',' order by installed_rank) from flyway_schema_history where success and version is not null"), migrationVersions.join(','))
   assert.equal(docker('image', 'inspect', '--format', '{{.Config.User}}', `partysync-backend:${tag}`), '10001:10001')
   for (const service of ['backend', 'postgres']) {
     const inspect = docker('inspect', compose('ps', '-q', service))
     assert.ok(!inspect.includes(adminPassword) && !inspect.includes(appPassword))
   }
-  pass('all containers healthy; V1–V3 + Hibernate validate; non-root backend; non-superuser DB; no DB/API published ports or env passwords')
+  pass(`all containers healthy; migrations ${migrationVersions.join(',')} + Hibernate validate; non-root backend; non-superuser DB; no DB/API published ports or env passwords`)
 
   for (const path of ['/', '/login', '/register', '/account', '/groups/1', '/groups/1/posts', '/join/example']) {
     const page = await request(path); assert.equal(page.status, 200); assert.ok(page.text.includes('<div id="root">'))
@@ -172,6 +177,6 @@ try {
   if (started) writeFileSync(join(work, 'container-failure.log'), compose('logs', '--no-color', '--tail', '60'))
   throw error
 } finally {
-  if (started) compose('down', '--remove-orphans') // Named volumes deliberately retained; never down -v.
+  if (started) compose('down', '--remove-orphans') // 데이터 볼륨은 보존하며 down -v는 사용하지 않는다.
   console.log(`Isolated Compose project: ${project}; verification artifacts: ${work}`)
 }
