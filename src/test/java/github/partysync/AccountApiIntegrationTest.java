@@ -40,6 +40,7 @@ class AccountApiIntegrationTest {
     @AfterEach void cleanup() {
         for (Long id : userIds) {
             jdbc.update("delete from member_session where user_session_id in (select id from user_session where user_id=?)", id);
+            jdbc.update("delete from account_refresh_token where user_session_id in (select id from user_session where user_id=?)", id);
             jdbc.update("delete from user_session where user_id=?", id);
         }
         for (Long id : groupIds) {
@@ -185,6 +186,72 @@ class AccountApiIntegrationTest {
         claim(user, legacy);
     }
 
+    @Test void rememberCookieRotates_replayRevokesFamily_andOriginIsProtected() throws Exception {
+        Login user=register();
+        var login=send("/auth/login",null,Map.of("loginId",user.id,"password",PASSWORD)).andExpect(status().isOk()).andReturn();
+        String header=login.getResponse().getHeader("Set-Cookie");
+        assertThat(header).contains("HttpOnly","Secure","SameSite=Strict","Max-Age=");
+        var cookie=cookieFrom(login);
+        mvc.perform(post("/api/auth/refresh").cookie(cookie)).andExpect(status().isForbidden());
+        mvc.perform(post("/api/auth/refresh").cookie(cookie).header("X-PartySync-Client","web").header("Origin","https://evil.example")).andExpect(status().isForbidden());
+        var refreshed=mvc.perform(post("/api/auth/refresh").cookie(cookie).header("X-PartySync-Client","web")).andExpect(status().isOk()).andReturn();
+        String access=node(refreshed).get("accountAccessToken").asText();
+        assertThat(access).isNotEqualTo(node(login).get("accountAccessToken").asText());
+        mvc.perform(post("/api/auth/refresh").cookie(cookie).header("X-PartySync-Client","web")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/account/me").header(HttpHeaders.AUTHORIZATION,bearer(access))).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/auth/refresh").cookie(cookieFrom(refreshed)).header("X-PartySync-Client","web")).andExpect(status().isUnauthorized());
+    }
+
+    @Test void sessionCookieExpiryAndLogoutRevokeRefresh() throws Exception {
+        Login user=register();
+        var login=send("/auth/login?rememberMe=false",null,Map.of("loginId",user.id,"password",PASSWORD)).andExpect(status().isOk()).andReturn();
+        assertThat(login.getResponse().getHeader("Set-Cookie")).doesNotContain("Max-Age=");
+        var cookie=cookieFrom(login);
+        mvc.perform(post("/api/auth/forget").cookie(cookie).header("X-PartySync-Client","web")).andExpect(status().isNoContent()).andExpect(header().string("Set-Cookie",org.hamcrest.Matchers.containsString("Max-Age=0")));
+        mvc.perform(post("/api/auth/refresh").cookie(cookie).header("X-PartySync-Client","web")).andExpect(status().isUnauthorized());
+        var next=send("/auth/login",null,Map.of("loginId",user.id,"password",PASSWORD)).andReturn();
+        jdbc.update("update account_refresh_token set expires_at=now()-interval '1 second' where user_session_id in (select id from user_session where user_id=?)",user.userId);
+        mvc.perform(post("/api/auth/refresh").cookie(cookieFrom(next)).header("X-PartySync-Client","web")).andExpect(status().isUnauthorized());
+    }
+
+    @Test void ownerRemovalPreservesRecords_deniesGuestAndAccountSessions_andExcludesAggregation() throws Exception {
+        var party=guest(); Long gid=party.group().groupId();
+        var member=groups.join(new GroupRequests.Join(party.inviteCode(),"Participant"));
+        send("/groups/"+gid+"/invite/check",member.memberAccessToken(),Map.of("inviteCode",party.inviteCode())).andExpect(status().isOk()).andExpect(jsonPath("matches").value(true));
+        send("/groups/"+gid+"/invite/check",member.memberAccessToken(),Map.of("inviteCode","wrong")).andExpect(status().isOk()).andExpect(jsonPath("matches").value(false));
+        var foreign=guest();
+        String path="/api/groups/"+gid+"/members/";
+        mvc.perform(delete(path+party.member().memberId()).header(HttpHeaders.AUTHORIZATION,bearer(member.memberAccessToken()))).andExpect(status().isForbidden());
+        mvc.perform(delete(path+party.member().memberId()).header(HttpHeaders.AUTHORIZATION,bearer(party.memberAccessToken()))).andExpect(status().isForbidden());
+        mvc.perform(delete(path+foreign.member().memberId()).header(HttpHeaders.AUTHORIZATION,bearer(party.memberAccessToken()))).andExpect(status().isForbidden());
+        jdbc.update("update group_member set role='OWNER' where id=?",member.member().memberId());
+        mvc.perform(delete(path+member.member().memberId()).header(HttpHeaders.AUTHORIZATION,bearer(party.memberAccessToken()))).andExpect(status().isForbidden());
+        jdbc.update("update group_member set role='MEMBER' where id=?",member.member().memberId());
+        jdbc.update("insert into weekly_availability(group_member_id,day_of_week,start_minute,end_minute) values(?,'MONDAY',0,60)",member.member().memberId());
+        Long cat=jdbc.queryForObject("insert into game_category(group_id,name,created_at) values(?,'Preserved',localtimestamp) returning id",Long.class,gid);
+        jdbc.update("insert into post(group_id,game_category_id,author_id,title,created_at,updated_at) values(?,?,?,'History',localtimestamp,localtimestamp)",gid,cat,member.member().memberId());
+        Login user=register(); String linked=claim(user,member.memberAccessToken()).get("memberAccessToken").asText();
+        send("/account/invite/session",user.token,Map.of("inviteCode",party.inviteCode())).andExpect(status().isOk()).andExpect(jsonPath("member.memberId").value(member.member().memberId()));
+        mvc.perform(delete(path+member.member().memberId()).header(HttpHeaders.AUTHORIZATION,bearer(party.memberAccessToken()))).andExpect(status().isNoContent());
+        for (String token:List.of(member.memberAccessToken(),linked)) mvc.perform(get("/api/members/me").header(HttpHeaders.AUTHORIZATION,bearer(token))).andExpect(status().isUnauthorized());
+        send("/account/groups/"+gid+"/session",user.token,null).andExpect(status().isForbidden());
+        mvc.perform(get("/api/groups/"+gid).header(HttpHeaders.AUTHORIZATION,bearer(party.memberAccessToken()))).andExpect(jsonPath("memberCount").value(1));
+        mvc.perform(get("/api/groups/"+gid+"/availability?from=2026-11-16&to=2026-11-16").header(HttpHeaders.AUTHORIZATION,bearer(party.memberAccessToken()))).andExpect(status().isOk()).andExpect(jsonPath("days[0].members.length()").value(1));
+        assertThat(jdbc.queryForObject("select count(*) from post where author_id=?",Long.class,member.member().memberId())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from weekly_availability where group_member_id=?",Long.class,member.member().memberId())).isEqualTo(1);
+        // 계정에 연결하지 않은 비회원 토큰도 강퇴 후 사용할 수 없어야 한다.
+        var guest=groups.join(new GroupRequests.Join(party.inviteCode(),"Guest"));
+        mvc.perform(delete(path+guest.member().memberId()).header(HttpHeaders.AUTHORIZATION,bearer(party.memberAccessToken()))).andExpect(status().isNoContent());
+        mvc.perform(get("/api/members/me").header(HttpHeaders.AUTHORIZATION,bearer(guest.memberAccessToken()))).andExpect(status().isUnauthorized());
+        send("/groups/join",null,Map.of("inviteCode",party.inviteCode(),"nickname","Guest")).andExpect(status().isConflict());
+        send("/groups/join",null,Map.of("inviteCode",party.inviteCode(),"nickname","NewGuest")).andExpect(status().isCreated());
+    }
+
+    private jakarta.servlet.http.Cookie cookieFrom(MvcResult result) {
+        String pair=result.getResponse().getHeader("Set-Cookie").split(";",2)[0];
+        return new jakarta.servlet.http.Cookie("partysync_remember",pair.substring(pair.indexOf('=')+1));
+    }
+
     private Login register() throws Exception {
         String id = newId();
         JsonNode response = node(send("/auth/register", null, Map.of("loginId", id, "password", PASSWORD)).andExpect(status().isCreated()).andExpect(header().string("Cache-Control", "no-store")).andReturn());
@@ -195,7 +262,7 @@ class AccountApiIntegrationTest {
     private GroupResponses.Created guest() { var group = groups.create(new GroupRequests.Create("Account test", null, "Owner")); groupIds.add(group.group().groupId()); return group; }
     private JsonNode claim(Login user, String token) throws Exception { return node(send("/account/memberships/claim", user.token, Map.of("memberAccessToken", token)).andExpect(status().isOk()).andReturn()); }
     private ResultActions send(String path, String token, Object body) throws Exception {
-        var request = post("/api" + path); if (token != null) request.header(HttpHeaders.AUTHORIZATION, bearer(token));
+        var request = post("/api" + path).header("X-PartySync-Client", "web"); if (token != null) request.header(HttpHeaders.AUTHORIZATION, bearer(token));
         if (body != null) request.contentType("application/json").content(json.writeValueAsString(body));
         return mvc.perform(request);
     }

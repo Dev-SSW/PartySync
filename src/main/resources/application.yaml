@@ -26,7 +26,7 @@ spring:
 
 app:
   auth:
-    account-ttl: ${ACCOUNT_SESSION_TTL:P7D}
+    account-ttl: ${ACCOUNT_SESSION_TTL:PT15M}
     member-ttl: ${MEMBER_SESSION_TTL:PT12H}
     rate-limit:
       ip-attempts: ${AUTH_IP_ATTEMPTS:30}

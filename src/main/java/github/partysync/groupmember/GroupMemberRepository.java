@@ -15,33 +15,42 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface GroupMemberRepository extends JpaRepository<GroupMember, Long> {
     /** 실제 비회원 토큰 소유권을 검증하며 동시에 연결되는 것을 방지한다. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select m from GroupMember m where m.accessTokenHash=:hash and m.user is null")
+    @Query("select m from GroupMember m where m.accessTokenHash=:hash and m.user is null and m.active=true")
     Optional<GroupMember> findGuestForClaim(@Param("hash") String hash);
 
+    /** 계정에 연결된 활성 멤버만 조회한다. */
+    @Query("select m from GroupMember m where m.user.id=:userId and m.group.id=:groupId and m.active=true")
     Optional<GroupMember> findByUserIdAndGroupId(Long userId, Long groupId);
 
+    /** 초대받은 그룹에서 해당 계정의 활성 멤버를 찾는다. */
+    @Query("select m from GroupMember m where m.user.id=:userId and m.group.inviteCode=:code and m.active=true")
+    Optional<GroupMember> findAccountInvite(Long userId, String code);
+
     /** 계정에 연결된 그룹을 한 번에 조회한다. */
-    @Query("select new github.partysync.account.AccountResponses$Group(m.group.id, m.group.name, m.id, m.nickname, m.role, m.joinedAt) from GroupMember m where m.user.id=:userId order by m.id")
+    @Query("select new github.partysync.account.AccountResponses$Group(m.group.id, m.group.name, m.id, m.nickname, m.role, m.joinedAt) from GroupMember m where m.user.id=:userId and m.active=true order by m.id")
     List<github.partysync.account.AccountResponses.Group> findAccountGroups(@Param("userId") Long userId);
     /** 같은 멤버의 반복 일정·예외 저장·삭제를 직렬화하는 공통 잠금 행을 조회 */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select m from GroupMember m where m.id = :memberId")
     Optional<GroupMember> findForAvailabilityUpdate(@Param("memberId") Long memberId);
 
+    @Query("select m from GroupMember m where m.group.id=:groupId and m.active=true")
     List<GroupMember> findAllByGroupId(Long groupId);
 
     /** 그룹 인원 수를 별도 컬럼 대신 실제 멤버 행 수로 계산 */
+    @Query("select count(m) from GroupMember m where m.group.id=:groupId and m.active=true")
     long countByGroupId(Long groupId);
 
     /** 사전 중복 확인용 */
     boolean existsByGroupIdAndNickname(Long groupId, String nickname);
 
+    @Query("select m from GroupMember m where m.group.id=:groupId and m.active=true order by m.id")
     List<GroupMember> findAllByGroupIdOrderByIdAsc(Long groupId);
 
     /** 토큰 해시 인덱스로 인증 필드만 한 번 조회 */
     @Query("""
             select new github.partysync.groupmember.auth.MemberPrincipal(m.id, m.group.id, m.nickname, m.role)
-            from GroupMember m where m.accessTokenHash = :tokenHash and m.user is null
+            from GroupMember m where m.accessTokenHash = :tokenHash and m.user is null and m.active=true
             """)
     Optional<MemberPrincipal> findPrincipalByTokenHash(@Param("tokenHash") String tokenHash);
 }

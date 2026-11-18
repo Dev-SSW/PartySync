@@ -11,7 +11,7 @@ public interface MemberSessionRepository extends JpaRepository<MemberSession, Lo
         select new github.partysync.groupmember.auth.MemberPrincipal(m.id, m.group.id, m.nickname, m.role)
         from MemberSession s join s.groupMember m join s.userSession u
         where s.tokenHash=:hash and s.revokedAt is null and s.expiresAt>:now
-          and u.revokedAt is null and u.expiresAt>:now and m.user.id=u.user.id
+          and u.revokedAt is null and u.expiresAt>:now and m.user.id=u.user.id and m.active=true
         """)
     Optional<MemberPrincipal> authenticate(String hash, Instant now);
 

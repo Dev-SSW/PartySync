@@ -150,6 +150,25 @@ public class GroupService {
         return group;
     }
 
+    /** 같은 그룹의 OWNER만 일반 멤버를 비활성화하며 기록은 보존한다. */
+    @Transactional
+    public void removeMember(Long groupId, Long memberId, MemberPrincipal principal) {
+        requireGroupMember(groupId, principal);
+        GroupMember actor = members.findForAvailabilityUpdate(principal.groupMemberId()).orElseThrow();
+        if (!actor.isActive() || !actor.getGroup().getId().equals(groupId) || actor.getRole() != GroupRole.OWNER)
+            throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Owner required");
+        GroupMember target = members.findForAvailabilityUpdate(memberId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "MEMBER_NOT_FOUND", "Member missing"));
+        if (!target.getGroup().getId().equals(groupId) || target.getId().equals(actor.getId()) || target.getRole() == GroupRole.OWNER)
+            throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Cannot remove member");
+        target.deactivate();
+    }
+
+    /** 인증된 멤버의 그룹과 초대 코드가 일치하는지 확인한다. */
+    @Transactional(readOnly = true)
+    public boolean matchesInvite(Long groupId, MemberPrincipal principal, String code) {
+        return requireGroupMember(groupId, principal).getInviteCode().equals(code);
+    }
+
     private ApiException nicknameConflict() {
         return new ApiException(HttpStatus.CONFLICT, "NICKNAME_CONFLICT", "그룹에서 이미 사용 중인 닉네임입니다.");
     }

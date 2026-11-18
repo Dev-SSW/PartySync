@@ -198,7 +198,7 @@ public class AvailabilityService {
     private GroupMember lockMember(MemberPrincipal principal) {
         GroupMember member = members.findForAvailabilityUpdate(principal.groupMemberId()).orElseThrow(() ->
                 new ApiException(HttpStatus.NOT_FOUND, "MEMBER_NOT_FOUND", "멤버를 찾을 수 없습니다."));
-        if (!member.getGroup().getId().equals(principal.groupId())) {
+        if (!member.isActive() || !member.getGroup().getId().equals(principal.groupId())) {
             throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "접근 권한이 없습니다.");
         }
         return member;
