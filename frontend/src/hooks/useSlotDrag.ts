@@ -13,6 +13,8 @@ export function useSlotDrag(config: Painting) {
   const current = useRef(config)
   const gesture = useRef<{ value: boolean; visited: Set<string> } | null>(null)
   const skipClick = useRef(false)
+  const touch = useRef<{ x: number; y: number } | null>(null)
+  const scrolled = useRef(false)
   useEffect(() => {
     current.current = config
   }, [config])
@@ -42,6 +44,8 @@ export function useSlotDrag(config: Painting) {
   return (column: number, slot: number) => ({
     onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => {
       skipClick.current = false
+      scrolled.current = false
+      touch.current = event.pointerType === 'touch' ? { x: event.clientX, y: event.clientY } : null
       // 터치는 클릭으로 처리해 세로 스크롤을 시작할 때 일정이 바뀌지 않도록 합니다.
       if (!current.current.enabled || event.button !== 0 || event.pointerType === 'touch') return
       event.preventDefault()
@@ -51,12 +55,18 @@ export function useSlotDrag(config: Painting) {
       gesture.current = { value: !current.current.get(column, slot), visited: new Set() }
       paint(column, slot)
     },
+    // 스크롤·취소 뒤 합성 클릭이 발생해도 일정을 바꾸지 않는다.
+    onPointerMove: (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (touch.current && Math.hypot(event.clientX - touch.current.x, event.clientY - touch.current.y) > 10)
+        scrolled.current = true
+    },
+    onPointerCancel: () => { if (touch.current) scrolled.current = true },
     onPointerEnter: (event: ReactPointerEvent<HTMLButtonElement>) => {
       if (current.current.enabled && event.buttons === 1 && event.pointerType !== 'touch')
         paint(column, slot)
     },
     onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
-      if (!current.current.enabled || (event.detail !== 0 && skipClick.current)) return
+      if (!current.current.enabled || (event.detail !== 0 && (skipClick.current || scrolled.current))) return
       current.current.start?.()
       current.current.set(column, slot, !current.current.get(column, slot))
       current.current.end?.()
