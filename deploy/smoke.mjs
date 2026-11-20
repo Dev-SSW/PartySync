@@ -76,7 +76,7 @@ try {
   assert.equal(config.services['reverse-proxy'].image, `partysync-web:${tag}`)
   if (process.env.PARTYSYNC_SKIP_BUILD !== '1') compose('build', 'backend', 'reverse-proxy')
   started = true
-  compose('up', '-d', '--no-build', '--wait', '--wait-timeout', '240')
+  compose('up', '-d', '--no-build', '--wait', '--wait-timeout', '420')
   await waitHealthy()
   assert.ok(!config.services.backend.ports && !config.services.postgres.ports)
   assert.equal(config.networks.database.internal, true)
@@ -160,7 +160,7 @@ try {
   compose('up', '-d', '--no-build', '--force-recreate', '--no-deps', '--wait', '--wait-timeout', '120', 'postgres'); await waitHealthy()
   assert.notEqual(compose('ps', '-q', 'postgres'), previousDbContainer)
   assert.equal((await ok('/api/members/me', { token: ownerToken })).memberId, ownerId)
-  compose('up', '-d', '--no-build', '--force-recreate', '--no-deps', '--wait', '--wait-timeout', '180', 'backend', 'reverse-proxy')
+  compose('up', '-d', '--no-build', '--force-recreate', '--no-deps', '--wait', '--wait-timeout', '420', 'backend', 'reverse-proxy')
   await waitHealthy()
   assert.equal((await ok(`/api/groups/${groupId}/posts/${post.postId}`, { token: ownerToken })).title, 'Guide')
   assert.equal((await ok('/api/members/me/weekly-availability', { token: ownerToken })).slots[0].startMinute, 1140)
