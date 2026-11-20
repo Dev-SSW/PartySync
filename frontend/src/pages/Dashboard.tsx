@@ -271,7 +271,7 @@ export function Dashboard() {
           </p>
         </div>
         <aside className="sidebar">
-          <PartyNotifications />
+          <PartyNotifications key={me.data!.memberId} memberId={me.data!.memberId} />
           <LatestPosts />
           <details className="card member-card">
             <summary className="compact-members-summary">

@@ -1,8 +1,11 @@
 export function pushSupport(): 'ready' | 'install' | 'unsupported' {
   if (window.isSecureContext === false || !('serviceWorker' in navigator)) return 'unsupported'
   const standalone = window.matchMedia?.('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone
-  if (!standalone) return 'install'
-  return 'PushManager' in window && 'Notification' in window ? 'ready' : 'unsupported'
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  const inApp = /KAKAOTALK|NAVER|FBAN|FBAV|Instagram|; wv\)/i.test(navigator.userAgent)
+  if (!standalone && (ios || inApp)) return 'install'
+  if ('PushManager' in window && 'Notification' in window) return 'ready'
+  return standalone ? 'unsupported' : 'install'
 }
 
 export function registerServiceWorker() {
