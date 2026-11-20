@@ -15,6 +15,7 @@ import {
 } from '../../utils/schedule'
 import { Calendar, type CalendarProps } from './Calendar'
 import { SaveQueue } from './SaveQueue'
+import { useUpdateSafety } from '../pwa/updateSafety'
 
 type Command =
   | { kind: 'date'; date: string; cells: boolean[] }
@@ -79,6 +80,7 @@ export function AvailabilityWorkspace({
       ),
   )
   const status = useSyncExternalStore(queue.subscribe, queue.getSnapshot)
+  useUpdateSafety(status.pending)
   const blocker = useBlocker(status.pending)
   useEffect(() => {
     if (blocker.state !== 'blocked') return

@@ -20,6 +20,7 @@ public class AccountService {
     private final MemberSessionRepository memberSessions;
     private final GroupMemberRepository members;
     private final github.partysync.group.GroupRepository groups;
+    private final github.partysync.notification.PushSubscriptions pushSubscriptions;
     private final MemberTokenService tokens;
     private final PasswordEncoder passwords;
     private final SessionPolicy policy;
@@ -28,10 +29,11 @@ public class AccountService {
 
     public AccountService(UserAccountRepository users, UserSessionRepository sessions, MemberSessionRepository memberSessions,
                           GroupMemberRepository members, MemberTokenService tokens, PasswordEncoder passwords, SessionPolicy policy, Clock clock,
-                          github.partysync.group.GroupRepository groups) {
+                          github.partysync.group.GroupRepository groups, github.partysync.notification.PushSubscriptions pushSubscriptions) {
         this.users = users; this.sessions = sessions; this.memberSessions = memberSessions; this.members = members;
         this.tokens = tokens; this.passwords = passwords; this.policy = policy; this.clock = clock;
         this.groups = groups;
+        this.pushSubscriptions = pushSubscriptions;
         dummyPasswordHash = passwords.encode("timing-defense-placeholder");
     }
 
@@ -92,6 +94,7 @@ public class AccountService {
             throw new ApiException(HttpStatus.CONFLICT, "MEMBERSHIP_CONFLICT", "이 계정은 이미 해당 그룹에 연결되어 있습니다.");
         member.claim(parent.getUser());
         members.flush();
+        pushSubscriptions.linkMember(member.getId(), parent.getId());
         return issueMember(member, parent);
     }
 
@@ -156,6 +159,7 @@ public class AccountService {
         MemberSession session = memberSessions.findByTokenHash(tokens.hash(raw)).orElseThrow(AccountService::unauthorized);
         if (principal == null || !session.getGroupMember().getId().equals(principal.groupMemberId())) throw unauthorized();
         session.revoke(clock.instant());
+        pushSubscriptions.logoutMember(principal.groupMemberId(), session.getUserSession().getId());
     }
 
     private void requireActive(AccountPrincipal principal) {

@@ -34,12 +34,14 @@ public class GroupService {
     private final github.partysync.availability.WeeklyAvailabilityRepository weekly;
     private final github.partysync.availability.AvailabilityOverrideRepository overrides;
     private final github.partysync.account.MemberSessionRepository memberSessions;
+    private final github.partysync.notification.PushSubscriptions pushSubscriptions;
 
     public GroupService(GroupRepository groups, GroupMemberRepository members, SecureCodeGenerator codes,
                         MemberTokenService tokens, PlatformTransactionManager transactionManager,
                         github.partysync.availability.WeeklyAvailabilityRepository weekly,
                         github.partysync.availability.AvailabilityOverrideRepository overrides,
-                        github.partysync.account.MemberSessionRepository memberSessions) {
+                        github.partysync.account.MemberSessionRepository memberSessions,
+                        github.partysync.notification.PushSubscriptions pushSubscriptions) {
         this.groups = groups;
         this.members = members;
         this.codes = codes;
@@ -47,6 +49,7 @@ public class GroupService {
         this.weekly = weekly;
         this.overrides = overrides;
         this.memberSessions = memberSessions;
+        this.pushSubscriptions = pushSubscriptions;
         writes = new TransactionTemplate(transactionManager);
         // UNIQUE 위반으로 실패한 PostgreSQL 트랜잭션은 재사용할 수 없으므로 새 트랜잭션으로 재시도
         writes.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -172,6 +175,7 @@ public class GroupService {
         target.deactivate();
         // 일정 삭제가 영속성 컨텍스트를 비우기 전에 익명화와 연결 해제를 저장한다.
         members.flush();
+        pushSubscriptions.removeMember(memberId);
         memberSessions.deleteForMember(memberId);
         weekly.deleteForMember(memberId);
         overrides.deleteForMember(memberId);

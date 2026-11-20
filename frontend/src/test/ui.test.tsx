@@ -48,6 +48,33 @@ function dashboardFetch(role = 'MEMBER') {
 }
 
 describe('그룹 참여와 인증 복원', () => {
+  it('참여 정보를 지우기 전에 알림을 해제하고 실패하면 참여 정보를 유지한다', async () => {
+    writeSessions([session])
+    let failUnsubscribe = true
+    const nav = Object.create(navigator)
+    Object.defineProperties(nav, {
+      userAgent: { value: navigator.userAgent },
+      platform: { value: navigator.platform },
+      maxTouchPoints: { value: navigator.maxTouchPoints },
+    })
+    Object.defineProperty(nav, 'serviceWorker', { value: { getRegistration: vi.fn(async () => ({ pushManager: { getSubscription: async () => ({ endpoint: 'https://fcm.googleapis.com/fcm/send/device' }) } })) }, configurable: true })
+    vi.stubGlobal('navigator', nav)
+    vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const base = dashboardFetch()
+    const fetch = vi.fn(async (url: string, init: RequestInit) => url.endsWith('/push/subscription') && init.method === 'DELETE'
+      ? failUnsubscribe ? json({}, 503) : new Response(null, { status: 204 }) : base(url))
+    vi.stubGlobal('fetch', fetch)
+    const { router } = app('/groups/1')
+    await userEvent.click(await screen.findByRole('button', { name: /이 기기에서 참여 정보 지우기/ }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('알림 해제와 참여 정보 삭제를 완료하지 못했어요')
+    expect(readSessions()).toHaveLength(1)
+    failUnsubscribe = false
+    await userEvent.click(screen.getByRole('button', { name: /이 기기에서 참여 정보 지우기/ }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/'))
+    expect(readSessions()).toEqual([])
+    expect(fetch.mock.calls.filter(([url, init]) => url.endsWith('/push/subscription') && init.method === 'DELETE')).toHaveLength(2)
+  })
   it('초대 해시가 없는 기존 비회원도 토큰으로 초대를 검증해 자동 재입장한다', async () => {
     writeSessions([session])
     const base = dashboardFetch()

@@ -55,6 +55,9 @@ services:
       GROUP_RATE_WINDOW: ${GROUP_RATE_WINDOW:-PT1M}
       TRUSTED_PROXY_REGEX: ${TRUSTED_PROXY_REGEX:-172[.]30[.]77[.]2}
       DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
       JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--XX:InitialRAMPercentage=15 -XX:MaxRAMPercentage=55 -XX:MaxMetaspaceSize=192m -XX:ReservedCodeCacheSize=64m -XX:+ExitOnOutOfMemoryError -Duser.timezone=Asia/Seoul}
     secrets: [DB_PASSWORD]
     depends_on:
@@ -69,6 +72,7 @@ services:
       proxy:
         ipv4_address: ${BACKEND_PROXY_IP:-172.30.77.3}
       database: {}
+      push-egress: {}
     mem_limit: 768m
     cpus: 1.0
     logging: *logging
@@ -114,6 +118,8 @@ networks:
         - subnet: ${PROXY_SUBNET:-172.30.77.0/28}
   database:
     internal: true
+  # Web Push providers require outbound HTTPS; this network publishes no backend ports.
+  push-egress: {}
 
 volumes:
   postgres_data: {}

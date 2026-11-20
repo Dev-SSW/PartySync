@@ -26,6 +26,11 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation('nl.martijndwars:web-push:5.1.2') {
+		exclude group: 'org.bouncycastle', module: 'bcprov-jdk15on'
+	}
+	implementation 'org.bouncycastle:bcprov-jdk18on:1.86'
+	implementation 'org.bitbucket.b_c:jose4j:0.9.6'
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.projectlombok:lombok'
 	testImplementation 'org.springframework.boot:spring-boot-starter-validation-test'
