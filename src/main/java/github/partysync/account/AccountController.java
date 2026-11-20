@@ -36,6 +36,11 @@ public class AccountController {
     @PostMapping("/api/account/invite/session")
     public AccountResponses.Membership resume(@AuthenticationPrincipal AccountPrincipal principal, @Valid @RequestBody github.partysync.group.GroupRequests.Invite request) { return accounts.resumeInvite(principal, request.inviteCode()); }
 
+    @PostMapping("/api/account/groups/join")
+    public ResponseEntity<AccountResponses.Membership> join(@AuthenticationPrincipal AccountPrincipal principal, @Valid @RequestBody github.partysync.group.GroupRequests.Join request) {
+        return ResponseEntity.status(201).body(accounts.join(principal, request));
+    }
+
     /** 계정 공개 정보를 조회한다. */
     @GetMapping("/api/account/me")
     public AccountResponses.Me me(@AuthenticationPrincipal AccountPrincipal principal) { return accounts.me(principal); }

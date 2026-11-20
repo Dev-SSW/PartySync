@@ -1,9 +1,10 @@
 import { CalendarDays, ArrowUpRight, UsersRound } from 'lucide-react'
-import { Link, Outlet } from 'react-router-dom'
+import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../features/member/Auth'
 import { useAccount } from '../features/account/AccountAuth'
 import { InstallHint } from '../components/InstallHint'
 export function Layout() {
+  const location = useLocation()
   const { sessions } = useAuth()
   const { ready } = useAccount()
   return (
@@ -33,7 +34,7 @@ export function Layout() {
         </div>
       </header>
       <main className="shell">
-        <InstallHint />
+        <InstallHint path={location.pathname} />
         <Outlet />
       </main>
       <footer className="shell footer">

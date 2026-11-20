@@ -15,8 +15,9 @@ const membership = { group: { groupId: 1, name: '원래 파티', description: ''
 const guest = { groupId: 1, name: '원래 파티', token: guestToken, revision: 'guest' }
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status })
 function seedAccount() { storeAccount({ token: accountToken, user, revision: 'account-one', expiresAt: expiry }) }
-function setup(path: string, options: { restore?: boolean; restoreFailure?: number; resume?: boolean; failLogin?: boolean; expireAccount?: boolean; failClaim?: boolean; failLogout?: boolean; failEntry?: boolean; groupsEmpty?: boolean } = {}) {
+function setup(path: string, options: { restore?: boolean; restoreFailure?: number; resume?: boolean; failLogin?: boolean; expireAccount?: boolean; failClaim?: boolean; failLogout?: boolean; failEntry?: boolean; groupsEmpty?: boolean; joinConflictOnce?: boolean } = {}) {
   let claimed = false, signedOut = false
+  let joinAttempts = 0
   const fetch = vi.fn().mockImplementation(async (url: string, init: RequestInit) => {
     if (url.endsWith('/auth/refresh')) return options.restoreFailure ? json({}, options.restoreFailure) : options.restore ? json({ user, accountAccessToken: accountToken, expiresAt: expiry }) : json({ code: 'UNAUTHORIZED' }, 401)
     if (url.includes('/auth/')) url = url.split('?')[0]
@@ -25,6 +26,7 @@ function setup(path: string, options: { restore?: boolean; restoreFailure?: numb
     if (url.endsWith('/account/me')) return options.expireAccount || signedOut ? json({ code: 'UNAUTHORIZED' }, 401) : json(user)
     if (url.endsWith('/account/groups')) return json(options.groupsEmpty && !claimed ? [] : [{ groupId: 1, groupName: '원래 파티', memberId: 10, nickname: '원래 닉네임', role: 'OWNER', joinedAt: '' }])
     if (url.endsWith('/account/invite/session')) return options.resume ? json(membership) : json({ code: 'MEMBERSHIP_NOT_FOUND' }, 404)
+    if (url.endsWith('/account/groups/join')) { joinAttempts++; return options.joinConflictOnce && joinAttempts === 1 ? json({ code: 'NICKNAME_CONFLICT' }, 409) : json(membership, 201) }
     if (url.endsWith('/memberships/claim')) { if (options.failClaim) return json({ code: 'MEMBERSHIP_CONFLICT' }, 409); claimed = true; return json(membership) }
     if (url.endsWith('/account/groups/1/session')) return options.failEntry ? json({ code: 'UNAUTHORIZED' }, 401) : json(membership)
     if (url.endsWith('/auth/logout')) { if (options.failLogout) return json({}, 500); signedOut = true; return new Response(null, { status: 204 }) }
@@ -44,6 +46,56 @@ function setup(path: string, options: { restore?: boolean; restoreFailure?: numb
 }
 
 describe('계정 등록과 로그인', () => {
+  async function fillInvitation() {
+    await userEvent.type(await screen.findByLabelText(/내 닉네임/), '참여자')
+    await userEvent.type(screen.getByLabelText('로그인 ID'), 'raidmaster')
+    await userEvent.type(screen.getByLabelText('비밀번호', { exact: true }), 'safe-password-123')
+    await userEvent.type(screen.getByLabelText('비밀번호 확인'), 'safe-password-123')
+  }
+  it('초대 링크는 계정 생성을 기본으로 하고 가입 후 계정으로 파티에 바로 참여한다', async () => {
+    const { fetch } = setup('/join/invitation')
+    await fillInvitation()
+    await userEvent.click(screen.getByRole('button', { name: '계정 만들고 파티 참여하기' }))
+    await screen.findByRole('heading', { name: '원래 파티' })
+    expect(readSessions()[0]).toMatchObject({ token: memberToken, accountUserId: 1 })
+    expect(fetch.mock.calls.filter(c => c[0].includes('/auth/register'))).toHaveLength(1)
+    const joined = fetch.mock.calls.find(c => c[0].endsWith('/account/groups/join'))!
+    expect(JSON.parse(joined[1].body)).toEqual({ inviteCode: 'invitation', nickname: '참여자' })
+    expect(joined[1].headers.Authorization).toBe(`Bearer ${accountToken}`)
+    expect(fetch.mock.calls.some(c => c[0] === '/api/groups/join' || c[0].endsWith('/memberships/claim'))).toBe(false)
+  })
+  it('계정 생성 후 닉네임 충돌 시 계정을 다시 만들지 않고 닉네임만 고쳐 재시도한다', async () => {
+    const { fetch } = setup('/join/invitation', { joinConflictOnce: true })
+    await fillInvitation()
+    await userEvent.click(screen.getByRole('button', { name: '계정 만들고 파티 참여하기' }))
+    await screen.findByText(/이미 사용 중인 닉네임/)
+    expect(screen.getByLabelText(/내 닉네임/)).toHaveValue('참여자')
+    expect(screen.queryByLabelText('비밀번호', { exact: true })).not.toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText(/내 닉네임/), '2')
+    await userEvent.click(screen.getByRole('button', { name: '파티 참여하기' }))
+    await screen.findByRole('heading', { name: '원래 파티' })
+    expect(fetch.mock.calls.filter(c => c[0].includes('/auth/register'))).toHaveLength(1)
+    expect(fetch.mock.calls.filter(c => c[0].endsWith('/account/groups/join'))).toHaveLength(2)
+  })
+  it('비회원 참여는 별도로 선택해야 하며 복구 불가 경고를 표시한다', async () => {
+    setup('/join/invitation')
+    expect(await screen.findByLabelText('로그인 ID')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '비회원으로 시작하기' }))
+    expect(screen.queryByLabelText('로그인 ID')).not.toBeInTheDocument()
+    expect(screen.getByRole('note')).toHaveTextContent('일회용 사용자')
+    expect(screen.getByRole('note')).toHaveTextContent('다시 파티에 들어오지 못할 수')
+    await userEvent.click(screen.getByRole('button', { name: '계정 만들고 시작하기' }))
+    expect(screen.getByLabelText('로그인 ID')).toBeInTheDocument()
+  })
+  it('기존 계정 로그인 링크는 초대 주소를 유지한다', async () => {
+    const { router } = setup('/join/invitation', { resume: true })
+    await userEvent.click(await screen.findByRole('link', { name: '계정에 연결한 기존 파티로 로그인' }))
+    await userEvent.type(await screen.findByLabelText('로그인 ID'), 'raidmaster')
+    await userEvent.type(screen.getByLabelText('비밀번호'), 'safe-password-123')
+    await userEvent.click(screen.getByRole('button', { name: '로그인' }))
+    await screen.findByRole('heading', { name: '원래 파티' })
+    expect(router.state.location.pathname).toBe('/groups/1')
+  })
   it('탭 인증이 없어도 HttpOnly 쿠키 갱신으로 계정을 복원한다', async () => {
     const { fetch } = setup('/account', { restore: true })
     await screen.findByRole('heading', { name: '내 계정과 파티' })

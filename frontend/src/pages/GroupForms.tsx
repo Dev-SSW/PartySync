@@ -19,7 +19,10 @@ export function GroupForm({ mode }: { mode: 'create' | 'join' }) {
     [description, setDescription] = useState('')
   const [code, setCode] = useState(inviteCode || ''),
     [validation, setValidation] = useState('')
-  const [unsaved, setUnsaved] = useState<{ data: Membership; code?: string } | null>(null)
+  const [guestMode, setGuestMode] = useState(false)
+  const [loginId, setLoginId] = useState(''), [password, setPassword] = useState(''), [confirm, setConfirm] = useState('')
+  const [rememberLogin, setRememberLogin] = useState(true)
+  const [unsaved, setUnsaved] = useState<{ data: Membership; code?: string; accountUserId?: number } | null>(null)
   const [storageError, setStorageError] = useState(false)
   const { remember, sessions } = useAuth()
   const account = useAccount()
@@ -38,25 +41,6 @@ export function GroupForm({ mode }: { mode: 'create' | 'join' }) {
     }
     return null
   }
-  // 초대 링크에서는 새 가입 전에 비회원 정보와 계정 멤버를 먼저 복원한다.
-  const resume = useQuery({
-    queryKey: ['invite-resume', code, account.account?.revision],
-    enabled: !creating && !!inviteCode && !account.restoring && (!account.account || account.ready), retry: false,
-    queryFn: async () => {
-      const normalized = normalizeInvite(code)
-      const stored = await findStored(normalized)
-      if (stored) return stored
-      if (account.credentials && account.ready) {
-        try {
-          const membership = await accountApi.resumeInvite(account.credentials, normalized)
-          await remember(membership, normalized, account.account!.user.userId)
-          return membership.group.groupId
-        } catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error }
-      }
-      return null
-    },
-  })
-  useEffect(() => { if (resume.data) navigate(`/groups/${resume.data}`, { replace: true }) }, [resume.data, navigate])
   useEffect(() => {
     if (inviteCode !== undefined) setCode(inviteCode)
   }, [inviteCode])
@@ -77,12 +61,12 @@ export function GroupForm({ mode }: { mode: 'create' | 'join' }) {
       active = false
     }
   }, [creating, code, sessions])
-  async function finish(data: Membership, invitation?: string) {
+  async function finish(data: Membership, invitation?: string, accountUserId?: number) {
     // 발급 성공 후 저장 실패한 경우 재가입 대신 같은 응답의 토큰 저장을 다시 시도합니다.
-    setUnsaved({ data, code: invitation })
+    setUnsaved({ data, code: invitation, accountUserId })
     try {
-      await remember(data, invitation)
-      if (account.ready && account.credentials) {
+      await remember(data, invitation, accountUserId)
+      if (accountUserId === undefined && account.ready && account.credentials) {
         try {
           const linked = await accountApi.claim(account.credentials, data.memberAccessToken)
           await remember(linked, invitation, account.account!.user.userId)
@@ -104,11 +88,17 @@ export function GroupForm({ mode }: { mode: 'create' | 'join' }) {
         if (stored) { navigate(`/groups/${stored}`, { replace: true }); return }
       }
       if (!creating && account.ready && account.credentials) {
-        try {
-          const membership = await accountApi.resumeInvite(account.credentials, normalizeInvite(code))
-          await remember(membership, normalizeInvite(code), account.account!.user.userId)
-          navigate(`/groups/${membership.group.groupId}`, { replace: true }); return
-        } catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error }
+        const membership = await accountApi.join(account.credentials, normalizeInvite(code), nickname.trim())
+        await finish(membership, normalizeInvite(code), account.account!.user.userId)
+        return
+      }
+      if (!creating && !guestMode) {
+        const registered = await accountApi.register(loginId, password, rememberLogin)
+        account.accept(registered)
+        setPassword(''); setConfirm('')
+        const membership = await accountApi.join({ account: true, token: registered.accountAccessToken }, normalizeInvite(code), nickname.trim())
+        await finish(membership, normalizeInvite(code), registered.user.userId)
+        return
       }
       const data = await (creating
         ? api.create({
@@ -121,6 +111,25 @@ export function GroupForm({ mode }: { mode: 'create' | 'join' }) {
       await finish(data, creating ? data.inviteCode : normalizeInvite(code))
     },
   })
+  // 기존 참여 정보를 먼저 복원하고, 가입 처리 도중에는 복원 요청을 겹치지 않는다.
+  const resume = useQuery({
+    queryKey: ['invite-resume', code, account.account?.revision],
+    enabled: !creating && !!inviteCode && !mutation.isPending && !unsaved && !account.restoring && (!account.account || account.ready), retry: false,
+    queryFn: async () => {
+      const normalized = normalizeInvite(code)
+      const stored = await findStored(normalized)
+      if (stored) return stored
+      if (account.credentials && account.ready) {
+        try {
+          const membership = await accountApi.resumeInvite(account.credentials, normalized)
+          await remember(membership, normalized, account.account!.user.userId)
+          return membership.group.groupId
+        } catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error }
+      }
+      return null
+    },
+  })
+  useEffect(() => { if (resume.data) navigate(`/groups/${resume.data}`, { replace: true }) }, [resume.data, navigate])
   function submit(event: FormEvent) {
     event.preventDefault()
     if (!nickname.trim() || (creating && !name.trim()) || (!creating && !code.trim())) {
@@ -139,8 +148,12 @@ export function GroupForm({ mode }: { mode: 'create' | 'join' }) {
       navigate(`/groups/${resume.data}`)
       return
     }
+    if (!creating && !guestMode && !account.ready && (!/^[a-z0-9][a-z0-9_]{3,31}$/.test(loginId.trim().toLowerCase()) || password.length < 12 || new TextEncoder().encode(password).length > 72 || password.includes('\0') || !password.trim() || password !== confirm)) {
+      setValidation('아이디 형식과 비밀번호를 확인하세요. 비밀번호는 12자 이상, UTF-8 72바이트 이하이며 확인 값이 같아야 합니다.')
+      return
+    }
     setValidation('')
-    mutation.mutate()
+    if (!mutation.isPending) mutation.mutate()
   }
   return (
     <section className="narrow page">
@@ -153,7 +166,7 @@ export function GroupForm({ mode }: { mode: 'create' | 'join' }) {
       <p className="muted">
         {creating
           ? '파티를 만들면 초대 링크를 공유할 수 있어요.'
-          : '초대받은 코드와 파티에서 사용할 닉네임만 있으면 돼요.'}
+          : account.ready ? '로그인한 계정에 파티가 연결됩니다. 다음에도 같은 계정으로 입장하세요.' : '닉네임과 로그인할 아이디·비밀번호를 설정하면 다른 브라우저나 앱에서도 같은 계정으로 다시 입장할 수 있어요.'}
       </p>
       {!creating && !!inviteCode && (account.restoring || (account.account && !account.ready && !account.error) || (resume.isFetching)) ? <Loading /> : !creating && (resume.error || account.error) ? <Feedback error={resume.error || account.error} retry={() => { account.retry(); void resume.refetch() }} /> : <form className="card form-card" onSubmit={submit}>
         {creating ? (
@@ -206,6 +219,15 @@ export function GroupForm({ mode }: { mode: 'create' | 'join' }) {
             placeholder="파티원들에게 보여질 이름"
           />
         </label>
+        {!creating && !account.ready && !guestMode && <>
+          <label>로그인 ID<input required minLength={4} maxLength={32} autoComplete="username" value={loginId} onChange={e => setLoginId(e.target.value)} disabled={mutation.isPending} /></label>
+          <p className="muted small-text">영문 소문자·숫자·밑줄 4~32자. 첫 글자는 영문 또는 숫자이며 대소문자는 구분하지 않습니다.</p>
+          <label>비밀번호<input type="password" required minLength={12} maxLength={72} autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} disabled={mutation.isPending} /></label>
+          <label>비밀번호 확인<input type="password" required maxLength={72} autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)} disabled={mutation.isPending} /></label>
+          <p className="muted small-text">비밀번호는 12자 이상, UTF-8 72바이트 이하입니다. 비밀번호 찾기는 제공하지 않으니 안전하게 보관해 주세요.</p>
+          <label className="remember-login"><input type="checkbox" checked={rememberLogin} onChange={e => setRememberLogin(e.target.checked)} />로그인 유지</label>
+        </>}
+        {!creating && !account.ready && guestMode && <p className="feedback error" role="note">비회원은 로그인된 계정이 없는 일회용 사용자입니다. 참여 정보를 잃거나 다른 브라우저·설치한 앱에서 열면 다시 파티에 들어오지 못할 수 있습니다. 계속 이용하려면 계정을 만들거나 로그인한 뒤 파티를 연결해 주세요.</p>}
         {validation && (
           <p className="feedback error" role="alert">
             {validation}
@@ -228,7 +250,7 @@ export function GroupForm({ mode }: { mode: 'create' | 'join' }) {
           <button
             type="button"
             className="button primary full"
-            onClick={() => void finish(unsaved.data, unsaved.code)}
+            onClick={() => void finish(unsaved.data, unsaved.code, unsaved.accountUserId)}
           >
             참여 정보 저장 다시 시도
           </button>
@@ -240,10 +262,11 @@ export function GroupForm({ mode }: { mode: 'create' | 'join' }) {
                 ? '파티 만들기'
                 : existing
                   ? '참여한 파티로 이동'
-                  : '파티 참여하기'}
+                  : !account.ready && !guestMode ? '계정 만들고 파티 참여하기' : guestMode && !account.ready ? '비회원으로 파티 참여' : '파티 참여하기'}
             <ArrowRight size={17} />
           </button>
         )}
+        {!creating && !account.ready && !unsaved && <button type="button" className="button full" disabled={mutation.isPending || account.restoring} onClick={() => { setGuestMode(!guestMode); setPassword(''); setConfirm(''); setValidation(''); mutation.reset() }}>{guestMode ? '계정 만들고 시작하기' : '비회원으로 시작하기'}</button>}
       </form>}
       {!creating && !account.ready && <p className="muted"><Link to={`/login?returnTo=${encodeURIComponent(`/join/${code}`)}`}>계정에 연결한 기존 파티로 로그인</Link></p>}
       <p className="security-note">

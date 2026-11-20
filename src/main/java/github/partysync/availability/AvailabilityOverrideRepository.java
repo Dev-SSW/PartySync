@@ -9,6 +9,11 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface AvailabilityOverrideRepository extends JpaRepository<AvailabilityOverride, Long> {
+    /** DB의 연쇄 삭제로 예외 슬롯까지 정리한다. */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from AvailabilityOverride o where o.groupMember.id=:memberId")
+    void deleteForMember(@Param("memberId") Long memberId);
+
     /** 양 끝 날짜를 포함해 본인의 예외 부모를 날짜순으로 조회한다. */
     List<AvailabilityOverride> findAllByGroupMemberIdAndTargetDateBetweenOrderByTargetDateAsc(
             Long memberId, LocalDate from, LocalDate to);

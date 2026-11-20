@@ -214,7 +214,34 @@ class AccountApiIntegrationTest {
         mvc.perform(post("/api/auth/refresh").cookie(cookieFrom(next)).header("X-PartySync-Client","web")).andExpect(status().isUnauthorized());
     }
 
-    @Test void ownerRemovalPreservesRecords_deniesGuestAndAccountSessions_andExcludesAggregation() throws Exception {
+    @Test void accountJoinIsLinkedImmediately_andRepeatedJoinResumesTheSameMember() throws Exception {
+        var party=guest(); Login user=register();
+        Map<String,String> request=Map.of("inviteCode",party.inviteCode(),"nickname","AccountMember");
+        send("/account/groups/join",null,request).andExpect(status().isUnauthorized());
+        send("/account/groups/join",party.memberAccessToken(),request).andExpect(status().isForbidden());
+        send("/account/groups/join",user.token,Map.of("inviteCode","missing","nickname","AccountMember")).andExpect(status().isNotFound());
+        send("/account/groups/join",user.token,Map.of("inviteCode",party.inviteCode(),"nickname","Owner")).andExpect(status().isConflict());
+        var first=node(send("/account/groups/join",user.token,request).andExpect(status().isCreated()).andReturn());
+        Long memberId=first.at("/member/memberId").asLong();
+        assertThat(jdbc.queryForObject("select user_id from group_member where id=?",Long.class,memberId)).isEqualTo(user.userId);
+        assertThat(jdbc.queryForObject("select access_token_hash from group_member where id=?",String.class,memberId)).isNull();
+        assertThat(first.get("memberAccessToken").asText()).startsWith("m_");
+        var again=node(send("/account/groups/join",user.token,Map.of("inviteCode",party.inviteCode(),"nickname","Different")).andExpect(status().isCreated()).andReturn());
+        assertThat(again.at("/member/memberId").asLong()).isEqualTo(memberId);
+        assertThat(again.at("/member/nickname").asText()).isEqualTo("AccountMember");
+        assertThat(jdbc.queryForObject("select count(*) from group_member where group_id=?",Long.class,party.group().groupId())).isEqualTo(2);
+    }
+
+    @Test void failedAccountJoinSessionIssuance_rollsBackTheNewMembership() throws Exception {
+        var party=guest(); Login user=register();
+        doThrow(new org.springframework.dao.DataIntegrityViolationException("simulated persistence failure"))
+                .when(memberSessions).saveAndFlush(org.mockito.ArgumentMatchers.any(MemberSession.class));
+        send("/account/groups/join",user.token,Map.of("inviteCode",party.inviteCode(),"nickname","AccountMember")).andExpect(status().isInternalServerError());
+        assertThat(jdbc.queryForObject("select count(*) from group_member where group_id=?",Long.class,party.group().groupId())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from group_member where user_id=?",Long.class,user.userId)).isZero();
+    }
+
+    @Test void ownerRemovalKeepsOnlyPosts_andAllowsSameNicknameAndAccountToRejoin() throws Exception {
         var party=guest(); Long gid=party.group().groupId();
         var member=groups.join(new GroupRequests.Join(party.inviteCode(),"Participant"));
         send("/groups/"+gid+"/invite/check",member.memberAccessToken(),Map.of("inviteCode",party.inviteCode())).andExpect(status().isOk()).andExpect(jsonPath("matches").value(true));
@@ -228,6 +255,8 @@ class AccountApiIntegrationTest {
         mvc.perform(delete(path+member.member().memberId()).header(HttpHeaders.AUTHORIZATION,bearer(party.memberAccessToken()))).andExpect(status().isForbidden());
         jdbc.update("update group_member set role='MEMBER' where id=?",member.member().memberId());
         jdbc.update("insert into weekly_availability(group_member_id,day_of_week,start_minute,end_minute) values(?,'MONDAY',0,60)",member.member().memberId());
+        Long overrideId=jdbc.queryForObject("insert into availability_override(group_member_id,target_date,created_at) values(?,'2026-11-16',localtimestamp) returning id",Long.class,member.member().memberId());
+        jdbc.update("insert into availability_override_slot(availability_override_id,start_minute,end_minute) values(?,120,180)",overrideId);
         Long cat=jdbc.queryForObject("insert into game_category(group_id,name,created_at) values(?,'Preserved',localtimestamp) returning id",Long.class,gid);
         jdbc.update("insert into post(group_id,game_category_id,author_id,title,created_at,updated_at) values(?,?,?,'History',localtimestamp,localtimestamp)",gid,cat,member.member().memberId());
         Login user=register(); String linked=claim(user,member.memberAccessToken()).get("memberAccessToken").asText();
@@ -238,12 +267,25 @@ class AccountApiIntegrationTest {
         mvc.perform(get("/api/groups/"+gid).header(HttpHeaders.AUTHORIZATION,bearer(party.memberAccessToken()))).andExpect(jsonPath("memberCount").value(1));
         mvc.perform(get("/api/groups/"+gid+"/availability?from=2026-11-16&to=2026-11-16").header(HttpHeaders.AUTHORIZATION,bearer(party.memberAccessToken()))).andExpect(status().isOk()).andExpect(jsonPath("days[0].members.length()").value(1));
         assertThat(jdbc.queryForObject("select count(*) from post where author_id=?",Long.class,member.member().memberId())).isEqualTo(1);
-        assertThat(jdbc.queryForObject("select count(*) from weekly_availability where group_member_id=?",Long.class,member.member().memberId())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from weekly_availability where group_member_id=?",Long.class,member.member().memberId())).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from availability_override where group_member_id=?",Long.class,member.member().memberId())).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from availability_override_slot where availability_override_id=?",Long.class,overrideId)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from member_session where group_member_id=?",Long.class,member.member().memberId())).isZero();
+        assertThat(jdbc.queryForObject("select user_id from group_member where id=?",Long.class,member.member().memberId())).isNull();
+        assertThat(jdbc.queryForObject("select access_token_hash from group_member where id=?",String.class,member.member().memberId())).isNull();
+        assertThat(jdbc.queryForObject("select nickname from group_member where id=?",String.class,member.member().memberId())).isEqualTo("탈퇴한 사용자");
+        var rejoined=node(send("/account/groups/join",user.token,Map.of("inviteCode",party.inviteCode(),"nickname","Participant")).andExpect(status().isCreated()).andReturn());
+        assertThat(rejoined.at("/member/memberId").asLong()).isNotEqualTo(member.member().memberId());
+        assertThat(rejoined.at("/member/nickname").asText()).isEqualTo("Participant");
+        String newToken=rejoined.get("memberAccessToken").asText();
+        mvc.perform(get("/api/members/me").header(HttpHeaders.AUTHORIZATION,bearer(newToken))).andExpect(status().isOk());
+        mvc.perform(get("/api/members/me").header(HttpHeaders.AUTHORIZATION,bearer(linked))).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/groups/"+gid+"/posts").header(HttpHeaders.AUTHORIZATION,bearer(newToken))).andExpect(status().isOk()).andExpect(jsonPath("content[0].authorNickname").value("탈퇴한 사용자"));
         // 계정에 연결하지 않은 비회원 토큰도 강퇴 후 사용할 수 없어야 한다.
         var guest=groups.join(new GroupRequests.Join(party.inviteCode(),"Guest"));
         mvc.perform(delete(path+guest.member().memberId()).header(HttpHeaders.AUTHORIZATION,bearer(party.memberAccessToken()))).andExpect(status().isNoContent());
         mvc.perform(get("/api/members/me").header(HttpHeaders.AUTHORIZATION,bearer(guest.memberAccessToken()))).andExpect(status().isUnauthorized());
-        send("/groups/join",null,Map.of("inviteCode",party.inviteCode(),"nickname","Guest")).andExpect(status().isConflict());
+        send("/groups/join",null,Map.of("inviteCode",party.inviteCode(),"nickname","Guest")).andExpect(status().isCreated());
         send("/groups/join",null,Map.of("inviteCode",party.inviteCode(),"nickname","NewGuest")).andExpect(status().isCreated());
     }
 
