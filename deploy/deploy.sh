@@ -22,9 +22,16 @@ if [[ "$tables" != 0 ]]; then
   bash "$repo_root/deploy/backup.sh"
 fi
 if [[ -f "$state_dir/current" ]]; then cp -- "$state_dir/current" "$state_dir/previous"; fi
-if ! "${compose[@]}" up -d --no-build --wait --wait-timeout 180 backend reverse-proxy; then
+# Allow backend startup grace, failed probes and the proxy's subsequent health check.
+if ! "${compose[@]}" up -d --no-build --wait --wait-timeout 420 backend reverse-proxy; then
   echo 'Deployment health check failed. No DB rollback or automatic image downgrade was performed.' >&2
   "${compose[@]}" ps
+  # Emit targeted diagnostics rather than container configuration, which contains secrets.
+  backend_id=$("${compose[@]}" ps -q backend)
+  if [[ -n "$backend_id" ]]; then
+    docker inspect --format '{{json .State.Health}}' "$backend_id" || true
+  fi
+  "${compose[@]}" logs --no-color --tail 100 backend || true
   exit 1
 fi
 curl --fail --silent --show-error --max-time 30 "https://$site/healthz" > /dev/null

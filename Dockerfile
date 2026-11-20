@@ -18,6 +18,8 @@ USER 10001:10001
 ENV SPRING_PROFILES_ACTIVE=prod \
     JAVA_TOOL_OPTIONS="-XX:InitialRAMPercentage=15 -XX:MaxRAMPercentage=55 -XX:MaxMetaspaceSize=192m -XX:ReservedCodeCacheSize=64m -XX:+ExitOnOutOfMemoryError -Duser.timezone=Asia/Seoul"
 EXPOSE 8080
-HEALTHCHECK --interval=20s --timeout=5s --start-period=90s --retries=3 \
+# Small production hosts can need more than two minutes for JPA and security startup.
+# Successful probes still mark the container healthy immediately during this grace period.
+HEALTHCHECK --interval=20s --timeout=5s --start-period=240s --retries=3 \
     CMD curl --fail --silent --max-time 3 http://127.0.0.1:8080/actuator/health > /dev/null || exit 1
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]
