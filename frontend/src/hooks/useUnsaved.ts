@@ -1,6 +1,8 @@
 import { useEffect } from 'react'
 import { useBlocker } from 'react-router-dom'
+import { useUpdateSafety } from '../features/pwa/updateSafety'
 export function useUnsaved(dirty: boolean) {
+  useUpdateSafety(dirty)
   const blocker = useBlocker(dirty)
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {

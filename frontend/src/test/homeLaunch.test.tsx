@@ -178,6 +178,7 @@ describe('PWA 기본 파티 실행', () => {
     writeSessions([guest()]); writeDefaultParty(2)
     const { router } = setup('/launch', { guestDenied: true })
     await waitFor(() => expect(router.state.location.pathname).toBe('/'))
+    await screen.findByRole('region', { name: '내 파티' })
     expect(readDefaultParty()).toBeNull()
     expect(within(partyArea()).queryByRole('article', { name: '비회원 파티' })).not.toBeInTheDocument()
   })

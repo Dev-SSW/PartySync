@@ -25,6 +25,10 @@ spring:
       accept-float-as-int: false
 
 app:
+  push:
+    public-key: ${VAPID_PUBLIC_KEY:}
+    private-key: ${VAPID_PRIVATE_KEY:}
+    subject: ${VAPID_SUBJECT:}
   auth:
     account-ttl: ${ACCOUNT_SESSION_TTL:PT15M}
     member-ttl: ${MEMBER_SESSION_TTL:PT12H}

@@ -30,15 +30,17 @@ public class AvailabilityService {
     private final AvailabilityOverrideSlotRepository slots;
     private final GroupMemberRepository members;
     private final GroupService groups;
+    private final github.partysync.notification.SchedulePushNotifications notifications;
 
     public AvailabilityService(WeeklyAvailabilityRepository weekly, AvailabilityOverrideRepository overrides,
                                AvailabilityOverrideSlotRepository slots, GroupMemberRepository members,
-                               GroupService groups) {
+                               GroupService groups, github.partysync.notification.SchedulePushNotifications notifications) {
         this.weekly = weekly;
         this.overrides = overrides;
         this.slots = slots;
         this.members = members;
         this.groups = groups;
+        this.notifications = notifications;
     }
 
     /** 본인의 주간 반복 일정을 전체 교체한다. */
@@ -58,12 +60,14 @@ public class AvailabilityService {
 
         // 같은 멤버의 동시 수정을 잠금으로 순서대로 처리한다.
         lockMember(principal);
+        if (getWeekly(principal).slots().equals(normalized)) return new WeeklySchedule(List.copyOf(normalized));
         weekly.deleteForMember(principal.groupMemberId());
         // 벌크 삭제로 컨텍스트가 비워졌으므로 멤버 참조를 다시 얻는다.
         GroupMember member = members.getReferenceById(principal.groupMemberId());
         // 삭제와 저장은 같은 트랜잭션이므로 저장 실패 시 기존 일정도 복구된다.
         weekly.saveAllAndFlush(normalized.stream().map(slot -> new WeeklyAvailability(
                 member, slot.dayOfWeek(), slot.startMinute(), slot.endMinute())).toList());
+        notifications.changed(principal);
         return new WeeklySchedule(List.copyOf(normalized));
     }
 
@@ -90,6 +94,9 @@ public class AvailabilityService {
         AvailabilityOverride parent;
         if (existing.isPresent()) {
             Long id = existing.get().getId();
+            var previous = slots.findAllByAvailabilityOverrideIdOrderByStartMinuteAsc(id).stream()
+                    .map(slot -> new Slot(slot.getStartMinute(), slot.getEndMinute())).toList();
+            if (previous.equals(normalized)) return new OverrideSchedule(date, normalized);
             // 예외 부모의 ID·생성 시각은 유지하고 슬롯만 교체한다.
             slots.deleteForOverride(id);
             // 삭제된 슬롯이 부모 컬렉션에 남지 않도록 부모도 다시 조회한다.
@@ -101,6 +108,7 @@ public class AvailabilityService {
         // 빈 목록이어도 부모는 남겨 하루 전체 불가능을 표현한다.
         slots.saveAllAndFlush(normalized.stream()
                 .map(slot -> new AvailabilityOverrideSlot(target, slot.startMinute(), slot.endMinute())).toList());
+        notifications.changed(principal);
         return new OverrideSchedule(date, normalized);
     }
 
@@ -112,6 +120,7 @@ public class AvailabilityService {
         overrides.findByGroupMemberIdAndTargetDate(principal.groupMemberId(), date).ifPresent(value -> {
             overrides.delete(value);
             overrides.flush();
+            notifications.changed(principal);
         });
     }
 

@@ -3,6 +3,7 @@ import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../features/member/Auth'
 import { useAccount } from '../features/account/AccountAuth'
 import { InstallHint } from '../components/InstallHint'
+import { AppUpdateNotice } from '../features/pwa/AppUpdateNotice'
 export function Layout() {
   const location = useLocation()
   const { sessions } = useAuth()
@@ -34,6 +35,7 @@ export function Layout() {
         </div>
       </header>
       <main className="shell">
+        <AppUpdateNotice />
         <InstallHint path={location.pathname} />
         <Outlet />
       </main>

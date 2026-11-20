@@ -18,6 +18,8 @@ import { Feedback, Loading } from '../components/Feedback'
 import { AvailabilityWorkspace } from '../features/availability/AvailabilityWorkspace'
 import { OverrideEditor } from '../features/availability/OverrideEditor'
 import { LatestPosts } from '../features/board/LatestPosts'
+import { PartyNotifications } from '../features/pwa/PartyNotifications'
+import { pushApi } from '../api/push'
 import { addDays, monday, seoulToday } from '../utils/schedule'
 
 export function Dashboard() {
@@ -28,6 +30,20 @@ export function Dashboard() {
   const navigate = useNavigate()
   const [week, setWeek] = useState(() => monday(seoulToday()))
   const [calendarBusy, setCalendarBusy] = useState(false)
+  const [forgetting, setForgetting] = useState(false), [forgetError, setForgetError] = useState(false)
+  async function forgetThisDevice() {
+    if (!window.confirm('이 기기의 참여 정보와 이 파티의 알림 설정을 지울까요? 계정에 연결한 파티는 로그인 후 다시 입장할 수 있습니다. 비회원은 참여 정보를 복구할 수 없을 수 있습니다.')) return
+    setForgetting(true); setForgetError(false)
+    try {
+      if ('serviceWorker' in navigator) {
+        const registration = await navigator.serviceWorker.getRegistration('/')
+        const subscription = await registration?.pushManager?.getSubscription()
+        if (subscription) await pushApi.unsubscribe(session!, subscription.endpoint)
+      }
+      forget(session!.groupId); navigate('/')
+    } catch { setForgetError(true) }
+    finally { setForgetting(false) }
+  }
   const to = addDays(week, 6)
   const [editDate, setEditDate] = useState<string | null>(null)
   const [inviteRequested, setInviteRequested] = useState(false),
@@ -255,6 +271,7 @@ export function Dashboard() {
           </p>
         </div>
         <aside className="sidebar">
+          <PartyNotifications />
           <LatestPosts />
           <details className="card member-card">
             <summary className="compact-members-summary">
@@ -312,20 +329,12 @@ export function Dashboard() {
           </details>
           <button
             className="leave-button"
-            disabled={calendarBusy}
-            onClick={() => {
-              if (
-                window.confirm(
-                  '이 기기의 참여 정보를 지울까요? 서버 토큰이 폐기되는 것은 아닙니다. 다시 접근하려면 초대 링크로 참여해야 합니다.',
-                )
-              ) {
-                forget(session!.groupId)
-                navigate('/')
-              }
-            }}
+            disabled={calendarBusy || forgetting}
+            onClick={() => void forgetThisDevice()}
           >
             <LogOut size={14} /> 이 기기에서 참여 정보 지우기
           </button>
+          {forgetError && <p role="alert" className="feedback error">알림 해제와 참여 정보 삭제를 완료하지 못했어요. 연결을 확인하고 다시 시도해 주세요.</p>}
         </aside>
       </div>
       {editDate && own && (
