@@ -18,6 +18,7 @@ function seedAccount() { storeAccount({ token: accountToken, user, revision: 'ac
 function setup(path: string, options: { restore?: boolean; restoreFailure?: number; resume?: boolean; failLogin?: boolean; expireAccount?: boolean; failClaim?: boolean; failLogout?: boolean; failEntry?: boolean; groupsEmpty?: boolean; joinConflictOnce?: boolean } = {}) {
   let claimed = false, signedOut = false
   let joinAttempts = 0
+  let pushSubscribed = false
   const fetch = vi.fn().mockImplementation(async (url: string, init: RequestInit) => {
     if (url.endsWith('/auth/refresh')) return options.restoreFailure ? json({}, options.restoreFailure) : options.restore ? json({ user, accountAccessToken: accountToken, expiresAt: expiry }) : json({ code: 'UNAUTHORIZED' }, 401)
     if (url.includes('/auth/')) url = url.split('?')[0]
@@ -26,6 +27,9 @@ function setup(path: string, options: { restore?: boolean; restoreFailure?: numb
     if (url.endsWith('/account/me')) return options.expireAccount || signedOut ? json({ code: 'UNAUTHORIZED' }, 401) : json(user)
     if (url.endsWith('/account/groups')) return json(options.groupsEmpty && !claimed ? [] : [{ groupId: 1, groupName: '원래 파티', memberId: 10, nickname: '원래 닉네임', role: 'OWNER', joinedAt: '' }])
     if (url.endsWith('/account/invite/session')) return options.resume ? json(membership) : json({ code: 'MEMBERSHIP_NOT_FOUND' }, 404)
+    if (url.endsWith('/push/configuration')) return json({ enabled: true, publicKey: btoa(String.fromCharCode(4) + '\0'.repeat(64)).replace(/=/g, '') })
+    if (url.endsWith('/push/status')) return json({ subscribed: pushSubscribed })
+    if (url.endsWith('/push/subscription') && init.method === 'PUT') { pushSubscribed = true; return new Response(null, { status: 204 }) }
     if (url.endsWith('/account/groups/join')) { joinAttempts++; return options.joinConflictOnce && joinAttempts === 1 ? json({ code: 'NICKNAME_CONFLICT' }, 409) : json(membership, 201) }
     if (url.endsWith('/memberships/claim')) { if (options.failClaim) return json({ code: 'MEMBERSHIP_CONFLICT' }, 409); claimed = true; return json(membership) }
     if (url.endsWith('/account/groups/1/session')) return options.failEntry ? json({ code: 'UNAUTHORIZED' }, 401) : json(membership)
@@ -52,6 +56,33 @@ describe('계정 등록과 로그인', () => {
     await userEvent.type(screen.getByLabelText('비밀번호', { exact: true }), 'safe-password-123')
     await userEvent.type(screen.getByLabelText('비밀번호 확인'), 'safe-password-123')
   }
+  it('초대 가입이 끝나 파티에 입장하면 수신 여부를 묻고 동의 시 해당 파티 알림을 켠다', async () => {
+    let subscription: { endpoint: string; toJSON: () => unknown } | null = null
+    const registration = { active: {}, pushManager: {
+      getSubscription: async () => subscription,
+      subscribe: vi.fn(async () => {
+        subscription = { endpoint: 'https://fcm.googleapis.com/fcm/send/invited-device', toJSON: () => ({ endpoint: 'https://fcm.googleapis.com/fcm/send/invited-device', keys: { p256dh: 'public', auth: 'auth' } }) }
+        return subscription
+      }),
+    } }
+    const nav = { userAgent: navigator.userAgent, platform: navigator.platform, maxTouchPoints: 0,
+      serviceWorker: { getRegistration: async () => registration, register: async () => registration } }
+    vi.stubGlobal('navigator', nav)
+    vi.stubGlobal('PushManager', class {})
+    const requestPermission = vi.fn(async () => 'granted')
+    vi.stubGlobal('Notification', { requestPermission, permission: 'default' })
+    const { fetch, router } = setup('/join/invitation')
+    await fillInvitation()
+    await userEvent.click(screen.getByRole('button', { name: '계정 만들고 파티 참여하기' }))
+    await screen.findByRole('dialog', { name: '원래 파티의 일정 알림을 받을까요?' })
+    expect(router.state.location.pathname).toBe('/groups/1')
+    expect(requestPermission).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: '알림 받기' }))
+    await screen.findByRole('button', { name: '이 파티 알림 끄기' })
+    expect(requestPermission).toHaveBeenCalledOnce()
+    expect(fetch.mock.calls.find(([url, init]) => url.endsWith('/push/subscription') && init.method === 'PUT')![1].headers.Authorization).toBe(`Bearer ${memberToken}`)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
   it('초대 링크는 계정 생성을 기본으로 하고 가입 후 계정으로 파티에 바로 참여한다', async () => {
     const { fetch } = setup('/join/invitation')
     await fillInvitation()
