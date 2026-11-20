@@ -8,6 +8,7 @@ export const accountApi = {
   register: (loginId: string, password: string, remember = true) => request<AccountLogin>(`/auth/register?rememberMe=${remember}`, { method: 'POST', body: { loginId, password } }),
   login: (loginId: string, password: string, remember = true) => request<AccountLogin>(`/auth/login?rememberMe=${remember}`, { method: 'POST', body: { loginId, password } }),
   resumeInvite: (auth: AccountCredentials, inviteCode: string) => request<Membership>('/account/invite/session', { auth, method: 'POST', body: { inviteCode } }),
+  join: (auth: AccountCredentials, inviteCode: string, nickname: string) => request<Membership>('/account/groups/join', { auth, method: 'POST', body: { inviteCode, nickname } }),
   forget: () => request<void>('/auth/forget', { method: 'POST' }),
   me: (auth: AccountCredentials) => request<AccountUser>('/account/me', { auth }),
   groups: (auth: AccountCredentials) => request<AccountGroup[]>('/account/groups', { auth }),

@@ -31,13 +31,22 @@ public class GroupService {
     private final SecureCodeGenerator codes;
     private final MemberTokenService tokens;
     private final TransactionTemplate writes;
+    private final github.partysync.availability.WeeklyAvailabilityRepository weekly;
+    private final github.partysync.availability.AvailabilityOverrideRepository overrides;
+    private final github.partysync.account.MemberSessionRepository memberSessions;
 
     public GroupService(GroupRepository groups, GroupMemberRepository members, SecureCodeGenerator codes,
-                        MemberTokenService tokens, PlatformTransactionManager transactionManager) {
+                        MemberTokenService tokens, PlatformTransactionManager transactionManager,
+                        github.partysync.availability.WeeklyAvailabilityRepository weekly,
+                        github.partysync.availability.AvailabilityOverrideRepository overrides,
+                        github.partysync.account.MemberSessionRepository memberSessions) {
         this.groups = groups;
         this.members = members;
         this.codes = codes;
         this.tokens = tokens;
+        this.weekly = weekly;
+        this.overrides = overrides;
+        this.memberSessions = memberSessions;
         writes = new TransactionTemplate(transactionManager);
         // UNIQUE 위반으로 실패한 PostgreSQL 트랜잭션은 재사용할 수 없으므로 새 트랜잭션으로 재시도
         writes.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -150,7 +159,7 @@ public class GroupService {
         return group;
     }
 
-    /** 같은 그룹의 OWNER만 일반 멤버를 비활성화하며 기록은 보존한다. */
+    /** 같은 그룹의 OWNER만 강퇴할 수 있으며 게시글 외의 참여 정보를 정리한다. */
     @Transactional
     public void removeMember(Long groupId, Long memberId, MemberPrincipal principal) {
         requireGroupMember(groupId, principal);
@@ -161,6 +170,11 @@ public class GroupService {
         if (!target.getGroup().getId().equals(groupId) || target.getId().equals(actor.getId()) || target.getRole() == GroupRole.OWNER)
             throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Cannot remove member");
         target.deactivate();
+        // 일정 삭제가 영속성 컨텍스트를 비우기 전에 익명화와 연결 해제를 저장한다.
+        members.flush();
+        memberSessions.deleteForMember(memberId);
+        weekly.deleteForMember(memberId);
+        overrides.deleteForMember(memberId);
     }
 
     /** 인증된 멤버의 그룹과 초대 코드가 일치하는지 확인한다. */

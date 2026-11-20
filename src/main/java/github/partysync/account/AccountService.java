@@ -19,6 +19,7 @@ public class AccountService {
     private final UserSessionRepository sessions;
     private final MemberSessionRepository memberSessions;
     private final GroupMemberRepository members;
+    private final github.partysync.group.GroupRepository groups;
     private final MemberTokenService tokens;
     private final PasswordEncoder passwords;
     private final SessionPolicy policy;
@@ -26,9 +27,11 @@ public class AccountService {
     private final String dummyPasswordHash;
 
     public AccountService(UserAccountRepository users, UserSessionRepository sessions, MemberSessionRepository memberSessions,
-                          GroupMemberRepository members, MemberTokenService tokens, PasswordEncoder passwords, SessionPolicy policy, Clock clock) {
+                          GroupMemberRepository members, MemberTokenService tokens, PasswordEncoder passwords, SessionPolicy policy, Clock clock,
+                          github.partysync.group.GroupRepository groups) {
         this.users = users; this.sessions = sessions; this.memberSessions = memberSessions; this.members = members;
         this.tokens = tokens; this.passwords = passwords; this.policy = policy; this.clock = clock;
+        this.groups = groups;
         dummyPasswordHash = passwords.encode("timing-defense-placeholder");
     }
 
@@ -89,6 +92,22 @@ public class AccountService {
             throw new ApiException(HttpStatus.CONFLICT, "MEMBERSHIP_CONFLICT", "이 계정은 이미 해당 그룹에 연결되어 있습니다.");
         member.claim(parent.getUser());
         members.flush();
+        return issueMember(member, parent);
+    }
+
+    /** 계정 연결과 파티 참여를 한 번에 처리해 비회원 멤버가 남는 것을 방지한다. */
+    @Transactional
+    public AccountResponses.Membership join(AccountPrincipal principal, github.partysync.group.GroupRequests.Join request) {
+        UserSession parent = lockActive(principal);
+        var group = groups.findByInviteCode(request.inviteCode()).orElseThrow(() ->
+                new ApiException(HttpStatus.NOT_FOUND, "INVITE_NOT_FOUND", "유효한 초대 코드를 찾을 수 없습니다."));
+        var existing = members.findByUserIdAndGroupId(principal.userId(), group.getId());
+        if (existing.isPresent()) return issueMember(existing.get(), parent);
+        if (members.existsByGroupIdAndNickname(group.getId(), request.nickname()))
+            throw new ApiException(HttpStatus.CONFLICT, "NICKNAME_CONFLICT", "그룹에서 이미 사용 중인 닉네임입니다.");
+        GroupMember member = new GroupMember(group, request.nickname(), GroupRole.MEMBER, null);
+        member.claim(parent.getUser());
+        members.saveAndFlush(member);
         return issueMember(member, parent);
     }
 

@@ -42,6 +42,7 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, Long> 
     long countByGroupId(Long groupId);
 
     /** 사전 중복 확인용 */
+    @Query("select (count(m) > 0) from GroupMember m where m.group.id=:groupId and m.nickname=:nickname and m.active=true")
     boolean existsByGroupIdAndNickname(Long groupId, String nickname);
 
     @Query("select m from GroupMember m where m.group.id=:groupId and m.active=true order by m.id")

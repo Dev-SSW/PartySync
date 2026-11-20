@@ -31,7 +31,6 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 @Getter
 @Entity
 @Table(name = "group_member", uniqueConstraints = {
-        @UniqueConstraint(name = "uk_member_group_nickname", columnNames = {"group_id", "nickname"}),
         @UniqueConstraint(name = "uk_member_token_hash", columnNames = "access_token_hash"),
         @UniqueConstraint(name = "uk_member_id_group", columnNames = {"id", "group_id"})})
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -72,8 +71,13 @@ public class GroupMember {
     @Column(nullable = false)
     private boolean active = true;
 
-    /** 일정·게시글과 인증 이력을 남기고 그룹 접근만 차단한다. */
-    public void deactivate() { active = false; }
+    /** 게시글의 작성자 참조만 남기고 개인 정보와 인증 수단을 정리한다. */
+    public void deactivate() {
+        active = false;
+        nickname = "탈퇴한 사용자";
+        user = null;
+        accessTokenHash = null;
+    }
 
     @CreatedDate
     @Column(name = "joined_at", nullable = false, updatable = false)

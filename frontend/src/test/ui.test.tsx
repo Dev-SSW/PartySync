@@ -99,12 +99,13 @@ describe('그룹 참여와 인증 복원', () => {
     const fetch = vi.fn().mockResolvedValue(json({ code: 'NICKNAME_CONFLICT' }, 409))
     vi.stubGlobal('fetch', fetch)
     app('/join')
+    await userEvent.click(await screen.findByRole('button', { name: '비회원으로 시작하기' }))
     await userEvent.type(
       screen.getByLabelText(/초대 코드 또는 초대 링크/),
       'https://party.example/join/Only_Code',
     )
     await userEvent.type(await screen.findByLabelText(/내 닉네임/), '가입자')
-    await userEvent.click(screen.getByRole('button', { name: '파티 참여하기' }))
+    await userEvent.click(screen.getByRole('button', { name: '비회원으로 파티 참여' }))
     await screen.findByText(/이미 사용 중/)
     expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
       inviteCode: 'Only_Code',
@@ -127,12 +128,13 @@ describe('그룹 참여와 인증 복원', () => {
     const fetch = vi.fn()
     vi.stubGlobal('fetch', fetch)
     app('/join')
+    await userEvent.click(await screen.findByRole('button', { name: '비회원으로 시작하기' }))
     await userEvent.type(
       screen.getByLabelText(/초대 코드 또는 초대 링크/),
       'https://party.example/groups/123',
     )
     await userEvent.type(await screen.findByLabelText(/내 닉네임/), '가입자')
-    await userEvent.click(screen.getByRole('button', { name: '파티 참여하기' }))
+    await userEvent.click(screen.getByRole('button', { name: '비회원으로 파티 참여' }))
     expect(screen.getByRole('alert')).toHaveTextContent('올바른 초대 링크')
     expect(fetch).not.toHaveBeenCalled()
   })
@@ -175,8 +177,9 @@ describe('그룹 참여와 인증 복원', () => {
     const fetch = vi.fn().mockResolvedValue(json({ code: 'NICKNAME_CONFLICT' }, 409))
     vi.stubGlobal('fetch', fetch)
     app('/join/special-code')
+    await userEvent.click(await screen.findByRole('button', { name: '비회원으로 시작하기' }))
     await userEvent.type(await screen.findByLabelText(/내 닉네임/), '중복닉네임')
-    await userEvent.click(screen.getByRole('button', { name: '파티 참여하기' }))
+    await userEvent.click(screen.getByRole('button', { name: '비회원으로 파티 참여' }))
     await screen.findByText(/이미 사용 중/)
     expect(await screen.findByLabelText(/내 닉네임/)).toHaveValue('중복닉네임')
     expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({

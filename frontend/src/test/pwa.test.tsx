@@ -77,11 +77,30 @@ it('iPhone Safari는 설치 버튼 대신 공유 메뉴 안내를 제공한다',
   await userEvent.click(screen.getByText('앱 설치 안내'))
   expect(screen.getByText(/Safari 공유 메뉴/)).toBeVisible()
 })
-it('카카오톡에서는 외부 브라우저 안내를 제공한다', () => {
+it('카카오톡에서는 파티 참여 후 계정 목록으로 외부 브라우저를 열고 설치를 안내한다', () => {
   vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14) Chrome/144.0 Mobile Safari/537.36 KAKAOTALK')
-  render(<InstallHint />)
+  render(<InstallHint path="/groups/123" />)
   expect(screen.getByText(/카카오톡 메뉴에서 외부 브라우저/)).toBeInTheDocument()
   expect(screen.queryByText('앱 설치 안내')).not.toBeInTheDocument()
+  expect(screen.getByRole('link', { name: '앱 설치하러 외부 브라우저 열기' })).toHaveAttribute('href', `kakaotalk://web/openExternal?url=${encodeURIComponent(`${window.location.origin}/account/groups`)}`)
+  expect(screen.getByText(/같은 아이디로 로그인/)).toBeInTheDocument()
+})
+it('카카오톡 초대 화면에서는 초대 코드만 유지하고 인증 정보나 쿼리는 전달하지 않는다', async () => {
+  vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('iPhone KAKAOTALK')
+  render(<InstallHint path="/join/invitation" />)
+  expect(screen.getByRole('link', { name: '앱 설치하러 외부 브라우저 열기' })).toHaveAttribute('href', `kakaotalk://web/openExternal?url=${encodeURIComponent(`${window.location.origin}/join/invitation`)}`)
+  await userEvent.click(screen.getByText('열리지 않을 때'))
+  expect(screen.getByLabelText('외부 브라우저에서 열 주소')).toHaveValue(`${window.location.origin}/join/invitation`)
+})
+it('카카오톡에서 링크 복사가 차단되어도 주소를 직접 복사할 수 있다', async () => {
+  vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('KAKAOTALK')
+  const user = userEvent.setup()
+  vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('Denied'))
+  render(<InstallHint path="/groups/1" />)
+  await user.click(screen.getByRole('button', { name: '설치 링크 복사' }))
+  expect(await screen.findByRole('status')).toHaveTextContent('직접 복사')
+  await user.click(screen.getByText('열리지 않을 때'))
+  expect(screen.getByLabelText('외부 브라우저에서 열 주소')).toBeVisible()
 })
 it('설치된 앱 또는 설치 완료 후에는 설치 안내를 숨긴다', () => {
   chrome()

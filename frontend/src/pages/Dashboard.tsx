@@ -284,7 +284,7 @@ export function Dashboard() {
                     </span>
                   </div>
                   {member.role === 'OWNER' && <Crown size={16} className="crown" />}
-                  {isOwner && member.role !== 'OWNER' && member.memberId !== me.data!.memberId && <button className="button small" disabled={remove.isPending} onClick={() => { if (window.confirm(`${member.nickname}님을 강퇴할까요? 일정과 게시글 기록은 보존되며, 기존 초대 링크로 새로 참여할 수 있습니다.`)) remove.mutate(member.memberId) }}>강퇴</button>}
+                  {isOwner && member.role !== 'OWNER' && member.memberId !== me.data!.memberId && <button className="button small" disabled={remove.isPending} onClick={() => { if (window.confirm(`${member.nickname}님을 강퇴할까요? 일정과 참여 정보는 삭제되고 게시글은 탈퇴한 사용자 명의로 남습니다. 초대 링크로 같은 닉네임을 사용해 새로 참여할 수 있습니다.`)) remove.mutate(member.memberId) }}>강퇴</button>}
                 </li>
               ))}
             </ul>

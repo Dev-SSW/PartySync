@@ -6,6 +6,10 @@ import github.partysync.groupmember.auth.MemberPrincipal;
 import org.springframework.data.jpa.repository.*;
 
 public interface MemberSessionRepository extends JpaRepository<MemberSession, Long> {
+    @Modifying
+    @Query("delete from MemberSession s where s.groupMember.id=:memberId")
+    void deleteForMember(Long memberId);
+
     /** 부모 계정 세션의 만료·폐기와 연결 계정까지 함께 검증한다. */
     @Query("""
         select new github.partysync.groupmember.auth.MemberPrincipal(m.id, m.group.id, m.nickname, m.role)

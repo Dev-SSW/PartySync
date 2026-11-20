@@ -61,7 +61,7 @@ export function Home() {
             icon: Link2,
             n: '02',
             title: '링크 하나로 파티 완성',
-            text: '가입 절차 없이 닉네임만으로 참여하고, 내 일정은 나만 관리해요.',
+            text: '계정을 만들고 초대 링크로 참여하세요. 다음에도 같은 계정으로 파티에 입장할 수 있어요.',
           },
           {
             icon: Sparkles,
